@@ -12,6 +12,7 @@ import SqlToolPanel from '@/components/sql-tool-panel';
 
 
 export default function Dashboard() {
+
   return (
     <SidebarProvider>
       <Sidebar>
@@ -37,7 +38,6 @@ export default function Dashboard() {
       <SidebarInset>
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-sm sm:px-6">
           <SidebarTrigger />
-          {/* UserNav removed as user is not available */}
         </header>
         <main className="flex-1 p-4 sm:p-6">
           <Tabs defaultValue="ai-assistant" className="h-full">
