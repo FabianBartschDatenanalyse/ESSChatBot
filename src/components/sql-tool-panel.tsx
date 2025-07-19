@@ -1,9 +1,11 @@
+
 "use client";
 
 import { useState } from 'react';
 import { suggestSqlQuery } from '@/ai/flows/suggest-sql-query';
 import { getCodebookAsString } from '@/lib/codebook';
-import { mockSqlQueryResult } from '@/lib/mock-data';
+import { executeQuery } from '@/lib/data-service';
+
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -51,17 +53,46 @@ export default function SqlToolPanel() {
         }
     };
 
-    const handleRunQuery = () => {
+    const handleRunQuery = async () => {
         setIsRunning(true);
-        // Simulate API call
-        setTimeout(() => {
-            setQueryResult(mockSqlQueryResult);
+        try {
+            const result = await executeQuery(sqlQuery);
+            if (result.error) {
+                 toast({
+                    variant: 'destructive',
+                    title: 'Query Failed',
+                    description: result.error,
+                });
+                setQueryResult(null);
+            } else if (result.results) {
+                const queryRes = {
+                    columns: result.results[0].columns,
+                    rows: result.results[0].values.map(row => {
+                        const rowObj: Record<string, any> = {};
+                        result.results![0].columns.forEach((col, i) => {
+                            rowObj[col] = row[i];
+                        });
+                        return rowObj;
+                    }),
+                }
+                setQueryResult(queryRes);
+                toast({
+                    title: 'Query Executed',
+                    description: `Returned ${queryRes.rows.length} rows.`,
+                })
+            } else {
+                 setQueryResult({columns: [], rows: []});
+            }
+        } catch (error: any) {
+             toast({
+                variant: 'destructive',
+                title: 'Execution Failed',
+                description: error.message || 'An unexpected error occurred.',
+            });
+            setQueryResult(null);
+        } finally {
             setIsRunning(false);
-            toast({
-                title: 'Query Executed',
-                description: `Returned ${mockSqlQueryResult.rows.length} rows.`,
-            })
-        }, 1500);
+        }
     };
 
     return (
