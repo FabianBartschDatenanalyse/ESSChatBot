@@ -55,6 +55,7 @@ export default function SqlToolPanel() {
 
     const handleRunQuery = async () => {
         setIsRunning(true);
+        setQueryResult(null);
         try {
             const result = await executeQuery(sqlQuery);
             if (result.error) {
@@ -64,17 +65,8 @@ export default function SqlToolPanel() {
                     description: result.error,
                 });
                 setQueryResult(null);
-            } else if (result.results) {
-                const queryRes = {
-                    columns: result.results[0].columns,
-                    rows: result.results[0].values.map(row => {
-                        const rowObj: Record<string, any> = {};
-                        result.results![0].columns.forEach((col, i) => {
-                            rowObj[col] = row[i];
-                        });
-                        return rowObj;
-                    }),
-                }
+            } else if (result.results && result.results.length > 0) {
+                const queryRes = result.results[0];
                 setQueryResult(queryRes);
                 toast({
                     title: 'Query Executed',
