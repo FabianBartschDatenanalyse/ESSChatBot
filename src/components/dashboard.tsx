@@ -1,15 +1,10 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
-import { Loader2, Database, MessageSquare, TestTube2 } from 'lucide-react';
+import { Database, MessageSquare, TestTube2 } from 'lucide-react';
 
 import { SidebarProvider, Sidebar, SidebarInset, SidebarTrigger, SidebarContent, SidebarHeader, SidebarGroup, SidebarGroupLabel } from '@/components/ui/sidebar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { UserNav } from '@/components/user-nav';
 import Logo from '@/components/logo';
 import CodebookViewer from '@/components/codebook-viewer';
 import AskAiPanel from '@/components/ask-ai-panel';
@@ -17,34 +12,6 @@ import SqlToolPanel from '@/components/sql-tool-panel';
 
 
 export default function Dashboard() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const router = useRouter();
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-      } else {
-        router.push('/login');
-      }
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, [router]);
-
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  if (!user) {
-    return null;
-  }
-
   return (
     <SidebarProvider>
       <Sidebar>
@@ -70,7 +37,7 @@ export default function Dashboard() {
       <SidebarInset>
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-sm sm:px-6">
           <SidebarTrigger />
-          <UserNav user={user} />
+          {/* UserNav removed as user is not available */}
         </header>
         <main className="flex-1 p-4 sm:p-6">
           <Tabs defaultValue="ai-assistant" className="h-full">
