@@ -50,7 +50,7 @@ const mainAssistantFlow = ai.defineFlow(
       User's question: "${input.question}"
 
       First, analyze the user's question.
-      - If the question can be answered by querying the data (e.g., "what is the average...", "show me data for...", "compare countries..."), use the executeQueryTool. Formulate a precise SQL query to get the necessary data.
+      - If the question can be answered by querying the data (e.g., "what is the average...", "show me data for...", "compare countries..."), you MUST use the executeQueryTool. Formulate a precise SQL query to get the necessary data by providing a natural language question to the tool.
       - If the question is about the codebook itself, the survey's methodology, or a general question, answer it directly without using the tool.
       
       After using the tool, analyze the data returned and formulate a comprehensive, easy-to-understand answer for the user.
@@ -67,6 +67,7 @@ const mainAssistantFlow = ai.defineFlow(
     // Check if the model wants to use a tool
     const toolRequest = llmResponse.toolRequest;
     if (toolRequest) {
+      // Execute the requested tool
       const toolResult = await executeQueryTool.fn(toolRequest.input);
 
       // Send the tool's result back to the model to get the final answer
@@ -77,7 +78,7 @@ const mainAssistantFlow = ai.defineFlow(
           { toolRequest: toolRequest },
           { toolResponse: { name: executeQueryTool.name, output: toolResult } }
         ],
-        tools: [executeQueryTool],
+        tools: [executeQueryTool], // Provide tools again in case it needs to re-run
       });
     }
 
