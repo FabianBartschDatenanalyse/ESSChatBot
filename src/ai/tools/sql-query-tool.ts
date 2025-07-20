@@ -22,35 +22,50 @@ export const executeQueryTool = ai.defineTool(
     outputSchema: z.string().describe('The result of the query execution, either the data in JSON format or an error message.'),
   },
   async (input) => {
+    console.log('>>> [executeQueryTool] Tool called with natural language question:', input.nlQuestion);
     try {
       const codebook = getCodebookAsString();
-      // 1. Suggest a SQL query from the natural language question
+      
+      console.log('>>> [executeQueryTool] Requesting SQL query suggestion...');
       const suggestion = await suggestSqlQuery({
-        question: input.nlQuestion, // FIX: Was `nlQuestion: input.nlQuestion` which is incorrect.
+        question: input.nlQuestion,
         codebook,
       });
+      console.log('>>> [executeQueryTool] Received suggestion object:', suggestion);
+
       const sqlQuery = suggestion.sqlQuery;
 
-      if (!sqlQuery) {
-        return 'Failed to generate a SQL query.';
+      if (!sqlQuery || sqlQuery.trim() === '') {
+        const errorMsg = 'Failed to generate a valid SQL query.';
+        console.error('>>> [executeQueryTool] ' + errorMsg);
+        return errorMsg;
       }
+      console.log('>>> [executeQueryTool] Extracted SQL query:', sqlQuery);
 
-      // 2. Execute the suggested query
+      console.log('>>> [executeQueryTool] Executing SQL query...');
       const result = await executeQuery(sqlQuery);
-      
+      console.log('>>> [executeQueryTool] Received result from database:', result);
+
       if (result.error) {
-        return `Error executing query: ${result.error}`;
+        const errorMsg = `Error executing query: ${result.error}`;
+        console.error('>>> [executeQueryTool] ' + errorMsg);
+        return errorMsg;
       }
 
       if (result.results && result.results.length > 0) {
-        // Return the data as a stringified JSON
-        return JSON.stringify(result.results[0].rows);
+        const jsonResult = JSON.stringify(result.results[0].rows);
+        console.log('>>> [executeQueryTool] Returning JSON data:', jsonResult);
+        return jsonResult;
       }
       
-      return "Query executed successfully, but returned no data.";
+      const successMsg = "Query executed successfully, but returned no data.";
+      console.log('>>> [executeQueryTool] ' + successMsg);
+      return successMsg;
 
     } catch (e: any) {
-      return `An unexpected error occurred: ${e.message || 'Unknown error'}`;
+      const errorMsg = `An unexpected error occurred in executeQueryTool: ${e.message || 'Unknown error'}`;
+      console.error('>>> [executeQueryTool] ' + errorMsg, e);
+      return errorMsg;
     }
   }
 );
