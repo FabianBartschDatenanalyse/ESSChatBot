@@ -30,6 +30,7 @@ const prompt = ai.definePrompt({
   name: 'suggestSqlQueryPrompt',
   input: {schema: SuggestSqlQueryInputSchema},
   output: {schema: SuggestSqlQueryOutputSchema},
+  model: 'openai/gpt-4o',
   prompt: `You are an expert SQL query generator. You will be given a natural language question and a database codebook.
 
   You will generate a SQL query that answers the question using the codebook. Use only the tables and columns described in the codebook.
