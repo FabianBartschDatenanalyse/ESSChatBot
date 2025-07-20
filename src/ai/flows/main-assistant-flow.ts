@@ -38,6 +38,7 @@ const mainAssistantFlow = ai.defineFlow(
   },
   async (input) => {
     const llmResponse = await ai.generate({
+      model: 'openai/gpt-4o',
       prompt: `You are an expert data analyst and assistant for the European Social Survey (ESS).
       Your goal is to answer the user's question as accurately as possible.
       You have access to a tool that can query the ESS database directly.
