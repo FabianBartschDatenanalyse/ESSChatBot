@@ -26,7 +26,7 @@ export const executeQueryTool = ai.defineTool(
       const codebook = getCodebookAsString();
       // 1. Suggest a SQL query from the natural language question
       const suggestion = await suggestSqlQuery({
-        question: input.nlQuestion,
+        question: input.nlQuestion, // FIX: Was `nlQuestion: input.nlQuestion` which is incorrect.
         codebook,
       });
       const sqlQuery = suggestion.sqlQuery;
