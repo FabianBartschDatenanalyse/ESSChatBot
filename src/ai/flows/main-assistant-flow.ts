@@ -14,7 +14,6 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
-import { AITool } from 'genkit';
 
 const MainAssistantInputSchema = z.object({
   question: z.string().describe('The user\'s question.'),
@@ -68,8 +67,7 @@ const mainAssistantFlow = ai.defineFlow(
     // Check if the model wants to use a tool
     const toolRequest = llmResponse.toolRequest;
     if (toolRequest) {
-      const tool = executeQueryTool as AITool<any, any>;
-      const toolResult = await tool.fn(toolRequest.input);
+      const toolResult = await executeQueryTool.fn(toolRequest.input);
 
       // Send the tool's result back to the model to get the final answer
       llmResponse = await ai.generate({
@@ -77,7 +75,7 @@ const mainAssistantFlow = ai.defineFlow(
         prompt: [
           { text: initialPrompt },
           { toolRequest: toolRequest },
-          { toolResponse: { name: tool.name, output: toolResult } }
+          { toolResponse: { name: executeQueryTool.name, output: toolResult } }
         ],
         tools: [executeQueryTool],
       });
