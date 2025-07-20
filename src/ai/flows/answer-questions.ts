@@ -2,7 +2,7 @@
 
 /**
  * @fileOverview An AI agent that answers questions about the ESS codebook.
- *
+ * @deprecated This flow is deprecated in favor of mainAssistantFlow.
  * - answerQuestions - A function that answers questions using the codebook.
  * - AnswerQuestionsInput - The input type for the answerQuestions function.
  * - AnswerQuestionsOutput - The return type for the answerQuestions function.

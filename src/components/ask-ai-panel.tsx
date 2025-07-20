@@ -4,13 +4,14 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { answerQuestions } from '@/ai/flows/answer-questions';
+import { mainAssistant } from '@/ai/flows/main-assistant-flow';
+import { getCodebookAsString } from '@/lib/codebook';
 
 import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Loader2, Send } from 'lucide-react';
 import Logo from './logo';
 
@@ -41,10 +42,12 @@ export default function AskAiPanel() {
     form.reset();
 
     try {
-      const result = await answerQuestions({ question: values.question });
+      const codebook = getCodebookAsString();
+      const result = await mainAssistant({ question: values.question, codebook });
       const assistantMessage: Message = { role: 'assistant', content: result.answer };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {
+      console.error(error);
       const errorMessage: Message = { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
@@ -98,7 +101,7 @@ export default function AskAiPanel() {
               render={({ field }) => (
                 <FormItem className="flex-1">
                   <FormControl>
-                    <Input placeholder="e.g., What is the variable for trust in parliament?" {...field} disabled={isLoading} />
+                    <Input placeholder="e.g., What is the average trust in parliament per country?" {...field} disabled={isLoading} />
                   </FormControl>
                 </FormItem>
               )}
