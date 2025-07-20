@@ -65,7 +65,7 @@ const mainAssistantFlow = ai.defineFlow(
 
     const output = llmResponse.output;
     if (!output) {
-        throw new Error("The model did not return a response.");
+      throw new Error('The model did not return a response.');
     }
     return output;
   }
