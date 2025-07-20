@@ -83,23 +83,14 @@ const mainAssistantFlow = ai.defineFlow(
       });
     }
 
-    const output = llmResponse.output;
     const textContent = llmResponse.text;
     
-    // If we have a structured output that matches the schema, return it.
-    if (output) {
-        const parsedOutput = MainAssistantOutputSchema.safeParse(output);
-        if (parsedOutput.success) {
-          return parsedOutput.data;
-        }
-    }
-
-    // If there's no structured output but there is text content, use that.
+    // If there's text content, use that as the answer.
     if (textContent) {
         return { answer: textContent };
     }
 
-    // If we have neither, then the model truly didn't respond.
+    // Fallback if the model truly didn't respond with any text.
     throw new Error("The model did not return a valid response.");
   }
 );
