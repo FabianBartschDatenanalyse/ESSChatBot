@@ -56,6 +56,8 @@ const mainAssistantFlow = ai.defineFlow(
       After using the tool, analyze the data returned and formulate a comprehensive, easy-to-understand answer for the user.
       If you receive an error from the tool, explain the error to the user in a helpful way.
       
+      IMPORTANT: When you display the results from a query, you MUST also display the SQL query that was used to retrieve the data. Enclose the SQL query in a markdown code block.
+
       Always present the final answer in a clear and conversational tone.`;
 
     // Initial call to the model
