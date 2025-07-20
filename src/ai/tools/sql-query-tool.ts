@@ -40,13 +40,11 @@ export const executeQueryTool = ai.defineTool(
       const result = await executeQuery(sqlQuery);
 
       if (result.error) {
-        const errorMsg = `Error executing query: ${result.error}`;
-        return JSON.stringify({ error: errorMsg });
+        return JSON.stringify({ error: result.error });
       }
 
       if (result.results && result.results.length > 0) {
-        const jsonResult = JSON.stringify(result.results[0].rows);
-        return JSON.stringify({ data: jsonResult });
+        return JSON.stringify({ data: result.results[0].rows });
       }
       
       const successMsg = "Query executed successfully, but returned no data.";
@@ -54,7 +52,6 @@ export const executeQueryTool = ai.defineTool(
 
     } catch (e: any) {
       const errorMsg = `An unexpected error occurred in executeQueryTool: ${e.message || 'Unknown error'}`;
-      console.error(errorMsg, e);
       return JSON.stringify({ error: errorMsg });
     }
   }

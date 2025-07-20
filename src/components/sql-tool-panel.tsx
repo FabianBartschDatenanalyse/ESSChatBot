@@ -22,7 +22,7 @@ type QueryResult = {
 
 export default function SqlToolPanel() {
     const { toast } = useToast();
-    const [sqlQuery, setSqlQuery] = useState("SELECT cntry, AVG(trstprl) as avg_trust, COUNT(idno) as sample_size\nFROM ess_data\nGROUP BY cntry\nORDER BY avg_trust DESC;");
+    const [sqlQuery, setSqlQuery] = useState("SELECT cntry, AVG(trstprl) as avg_trust, COUNT(idno) as sample_size\nFROM ESS1\nGROUP BY cntry\nORDER BY avg_trust DESC;");
     const [nlQuestion, setNlQuestion] = useState("");
     const [queryResult, setQueryResult] = useState<QueryResult>(null);
     const [isSuggesting, setIsSuggesting] = useState(false);
@@ -119,7 +119,7 @@ export default function SqlToolPanel() {
                     value={sqlQuery}
                     onChange={(e) => setSqlQuery(e.target.value)}
                     className="h-32 font-mono text-sm"
-                    placeholder="SELECT * FROM ess_data;"
+                    placeholder="SELECT * FROM ESS1;"
                 />
             </div>
             

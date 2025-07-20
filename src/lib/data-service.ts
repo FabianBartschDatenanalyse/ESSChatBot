@@ -1,48 +1,35 @@
 'use server';
 
-import { initDb, type Database } from './data-loader';
-
-let db: Database | null = null;
-let dbInitializationPromise: Promise<Database> | null = null;
-
-async function getDb(): Promise<Database> {
-    if (db) {
-        return db;
-    }
-    if (!dbInitializationPromise) {
-        dbInitializationPromise = initDb().then(initializedDb => {
-            db = initializedDb;
-            return db;
-        });
-    }
-    return dbInitializationPromise;
-}
+import { supabase } from './supabase';
 
 export async function executeQuery(query: string): Promise<{ results?: any[], error?: string }> {
     try {
-        const currentDb = await getDb();
-        const results = currentDb.exec(query);
+        // We use an RPC call to a Postgres function in Supabase for security.
+        // This function should be created in the Supabase SQL editor.
+        const { data, error } = await supabase
+            .rpc('execute_safe_query', { query_text: query });
 
-        if (results.length === 0) {
+        if (error) {
+            console.error("Supabase RPC error:", error);
+            return { error: `Query execution failed: ${error.message}` };
+        }
+
+        if (!data || data.length === 0) {
             return { results: [{ columns: [], rows: [] }] };
         }
-        
-        const queryResult = results[0];
+
+        // The data from RPC is an array of JSON objects.
+        // We need to determine the columns from the first row.
+        const columns = Object.keys(data[0]);
         const formattedResults = {
-            columns: queryResult.columns,
-            rows: queryResult.values.map(row => {
-                const rowObject: Record<string, any> = {};
-                queryResult.columns.forEach((col, index) => {
-                    rowObject[col] = row[index];
-                });
-                return rowObject;
-            }),
+            columns: columns,
+            rows: data,
         };
-        
+
         return { results: [formattedResults] };
 
     } catch (e: any) {
-        console.error("SQL.js execution error:", e);
+        console.error("Supabase execution error:", e);
         return { error: `Query execution failed: ${e.message}` };
     }
 }

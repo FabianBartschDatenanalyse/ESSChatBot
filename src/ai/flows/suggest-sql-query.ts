@@ -34,7 +34,7 @@ const prompt = ai.definePrompt({
   prompt: `You are an expert SQL query generator. You will be given a natural language question and a database codebook.
 
   You will generate a SQL query that answers the question using the codebook.
-  IMPORTANT: All queries must be against a table named 'ess_data'.
+  IMPORTANT: All queries must be against a table named 'ESS1'.
 
   Question: {{{question}}}
   Codebook: {{{codebook}}}
