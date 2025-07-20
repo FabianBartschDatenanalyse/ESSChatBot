@@ -12,7 +12,7 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {z} from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
 
 const MainAssistantInputSchema = z.object({
@@ -38,7 +38,7 @@ const mainAssistantFlow = ai.defineFlow(
   },
   async (input) => {
     const llmResponse = await ai.generate({
-      model: 'openai/gpt-4o',
+      model: 'googleai/gemini-pro',
       prompt: `You are an expert data analyst and assistant for the European Social Survey (ESS).
       Your goal is to answer the user's question as accurately as possible.
       You have access to a tool that can query the ESS database directly.
@@ -57,7 +57,6 @@ const mainAssistantFlow = ai.defineFlow(
       After using the tool, analyze the data returned and formulate a comprehensive, easy-to-understand answer for the user.
       If you receive an error from the tool, explain the error to the user in a helpful way.
       Always present the final answer in a clear and conversational tone.`,
-      input: input,
       tools: [executeQueryTool],
       output: {
         schema: MainAssistantOutputSchema
