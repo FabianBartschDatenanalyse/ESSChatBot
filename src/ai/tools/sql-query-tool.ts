@@ -9,7 +9,7 @@
 import { ai } from '@/ai/genkit';
 import { executeQuery } from '@/lib/data-service';
 import { z } from 'zod';
-import { suggestSqlQuery } from '../flows/suggest-sql-query';
+import { suggestSqlQuery, type SuggestSqlQueryOutput } from '../flows/suggest-sql-query';
 import { getCodebookAsString } from '@/lib/codebook';
 
 export const executeQueryTool = ai.defineTool(
@@ -28,18 +28,27 @@ export const executeQueryTool = ai.defineTool(
       const codebook = getCodebookAsString();
       
       logs.push('[executeQueryTool] Requesting SQL query suggestion...');
-      const suggestion = await suggestSqlQuery({
-        question: input.nlQuestion,
-        codebook,
-      });
-      logs.push(`[executeQueryTool] Received suggestion object: ${JSON.stringify(suggestion)}`);
+      
+      let suggestion: SuggestSqlQueryOutput;
+      try {
+        suggestion = await suggestSqlQuery({
+          question: input.nlQuestion,
+          codebook,
+        });
+        logs.push(`[executeQueryTool] Received suggestion object: ${JSON.stringify(suggestion)}`);
+      } catch (suggestionError: any) {
+        const errorMsg = `Failed to get a valid SQL query suggestion from the AI model. Error: ${suggestionError.message || 'Unknown error'}`;
+        logs.push(`[executeQueryTool] CATCH-BLOCK (suggestion): ${errorMsg}`);
+        return JSON.stringify({ error: errorMsg, logs: logs.join('\n') });
+      }
+
 
       const sqlQuery = suggestion.sqlQuery;
       logs.push(`[executeQueryTool] Extracted SQL query: "${sqlQuery}"`);
 
 
       if (!sqlQuery || sqlQuery.trim() === '') {
-        const errorMsg = 'Failed to generate a valid SQL query.';
+        const errorMsg = 'AI model returned an empty SQL query.';
         logs.push(`[executeQueryTool] Error: ${errorMsg}`);
         return JSON.stringify({ error: errorMsg, logs: logs.join('\n') });
       }
