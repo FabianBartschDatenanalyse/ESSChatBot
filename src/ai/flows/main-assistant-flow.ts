@@ -14,7 +14,7 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
-import { AITool, RunAction } from 'genkit';
+import { AITool } from 'genkit';
 
 const MainAssistantInputSchema = z.object({
   question: z.string().describe('The user\'s question.'),
@@ -84,29 +84,22 @@ const mainAssistantFlow = ai.defineFlow(
     }
 
     const output = llmResponse.output;
-
-    if (!output) {
-      throw new Error("The model did not return a response.");
-    }
-
-    // Now, we need to ensure the final output conforms to the schema.
-    // The model might return a plain string, so we'll wrap it if needed.
-    if (typeof output === 'string') {
-        return { answer: output };
-    }
+    const textContent = llmResponse.text;
     
-    // Zod validation to ensure the final output is correct.
-    const parsedOutput = MainAssistantOutputSchema.safeParse(output);
-    if (parsedOutput.success) {
-      return parsedOutput.data;
-    } else {
-        // If parsing fails, try to extract the answer from the text content if available.
-        const textContent = llmResponse.text;
-        if (textContent) {
-            return { answer: textContent };
+    // If we have a structured output that matches the schema, return it.
+    if (output) {
+        const parsedOutput = MainAssistantOutputSchema.safeParse(output);
+        if (parsedOutput.success) {
+          return parsedOutput.data;
         }
-        console.error("Schema validation failed:", parsedOutput.error);
-        throw new Error("The model's response did not match the expected format.");
     }
+
+    // If there's no structured output but there is text content, use that.
+    if (textContent) {
+        return { answer: textContent };
+    }
+
+    // If we have neither, then the model truly didn't respond.
+    throw new Error("The model did not return a valid response.");
   }
 );
