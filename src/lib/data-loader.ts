@@ -6,8 +6,14 @@ import Papa from 'papaparse';
 let dbInstance: any;
 
 async function initDb() {
+  if (dbInstance) return dbInstance;
+
+  // sql.js needs to locate its .wasm file. In a server environment, we must provide the path.
+  const wasmPath = path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm');
+  const wasmBinary = await fs.readFile(wasmPath);
+  
   const SQL = await initSqlJs({
-    locateFile: (file: string) => `https://sql.js.org/dist/${file}`
+    wasmBinary
   });
   dbInstance = new SQL.Database();
 
