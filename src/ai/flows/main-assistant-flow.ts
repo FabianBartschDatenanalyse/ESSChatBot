@@ -55,7 +55,8 @@ const mainAssistantFlow = ai.defineFlow(
       
       After using the tool, analyze the data returned and formulate a comprehensive, easy-to-understand answer for the user.
       If you receive an error from the tool, explain the error to the user in a helpful way.
-      Always present the final answer in a clear and conversational tone.`;
+      Always present the final answer in a clear and conversational tone.
+      If the tool provides debug logs, you MUST include them at the end of your response inside a formatted markdown code block, under a heading "Debugging Logs".`;
 
     // Initial call to the model
     let llmResponse = await ai.generate({
@@ -78,7 +79,7 @@ const mainAssistantFlow = ai.defineFlow(
           { toolRequest: toolRequest },
           { toolResponse: { name: executeQueryTool.name, output: toolResult } }
         ],
-        tools: [executeQueryTool], // Provide tools again in case it needs to re-run
+        tools: [executeQueryTool],
       });
     }
 
