@@ -38,6 +38,7 @@ const prompt = ai.definePrompt({
   RULES:
   1. The table name is "ESS1" and MUST be enclosed in double quotes.
   2. The generated SQL query MUST NOT end with a semicolon.
+  3. When performing mathematical operations (like AVG, SUM, etc.) on a column, you MUST cast it to a numeric type (e.g., CAST(column_name AS NUMERIC)).
 
   Question: {{{question}}}
   Codebook: {{{codebook}}}
