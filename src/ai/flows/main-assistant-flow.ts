@@ -14,6 +14,7 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
+import { AITool, RunAction } from 'genkit';
 
 const MainAssistantInputSchema = z.object({
   question: z.string().describe('The user\'s question.'),
@@ -37,18 +38,17 @@ const mainAssistantFlow = ai.defineFlow(
     outputSchema: MainAssistantOutputSchema,
   },
   async (input) => {
-    const llmResponse = await ai.generate({
-      model: 'openai/gpt-4o',
-      prompt: `You are an expert data analyst and assistant for the European Social Survey (ESS).
+    
+    const initialPrompt = `You are an expert data analyst and assistant for the European Social Survey (ESS).
       Your goal is to answer the user's question as accurately as possible.
       You have access to a tool that can query the ESS database directly.
       
       Here is the database codebook to help you understand the available data:
       --- CODEBOOK START ---
-      {{{codebook}}}
+      ${input.codebook}
       --- CODEBOOK END ---
 
-      User's question: "{{{question}}}"
+      User's question: "${input.question}"
 
       First, analyze the user's question.
       - If the question can be answered by querying the data (e.g., "what is the average...", "show me data for...", "compare countries..."), use the executeQueryTool. Formulate a precise SQL query to get the necessary data.
@@ -56,17 +56,57 @@ const mainAssistantFlow = ai.defineFlow(
       
       After using the tool, analyze the data returned and formulate a comprehensive, easy-to-understand answer for the user.
       If you receive an error from the tool, explain the error to the user in a helpful way.
-      Always present the final answer in a clear and conversational tone.`,
+      Always present the final answer in a clear and conversational tone.`;
+
+    // Initial call to the model
+    let llmResponse = await ai.generate({
+      model: 'openai/gpt-4o',
+      prompt: initialPrompt,
       tools: [executeQueryTool],
-      output: {
-        schema: MainAssistantOutputSchema
-      }
     });
 
-    const output = llmResponse.output;
-    if (!output) {
-      throw new Error('The model did not return a response.');
+    // Check if the model wants to use a tool
+    const toolRequest = llmResponse.toolRequest;
+    if (toolRequest) {
+      const tool = executeQueryTool as AITool<any, any>;
+      const toolResult = await tool.fn(toolRequest.input);
+
+      // Send the tool's result back to the model to get the final answer
+      llmResponse = await ai.generate({
+        model: 'openai/gpt-4o',
+        prompt: [
+          { text: initialPrompt },
+          { toolRequest: toolRequest },
+          { toolResponse: { name: tool.name, output: toolResult } }
+        ],
+        tools: [executeQueryTool],
+      });
     }
-    return output;
+
+    const output = llmResponse.output;
+
+    if (!output) {
+      throw new Error("The model did not return a response.");
+    }
+
+    // Now, we need to ensure the final output conforms to the schema.
+    // The model might return a plain string, so we'll wrap it if needed.
+    if (typeof output === 'string') {
+        return { answer: output };
+    }
+    
+    // Zod validation to ensure the final output is correct.
+    const parsedOutput = MainAssistantOutputSchema.safeParse(output);
+    if (parsedOutput.success) {
+      return parsedOutput.data;
+    } else {
+        // If parsing fails, try to extract the answer from the text content if available.
+        const textContent = llmResponse.text;
+        if (textContent) {
+            return { answer: textContent };
+        }
+        console.error("Schema validation failed:", parsedOutput.error);
+        throw new Error("The model's response did not match the expected format.");
+    }
   }
 );
