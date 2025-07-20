@@ -33,7 +33,8 @@ const prompt = ai.definePrompt({
   model: 'openai/gpt-4o',
   prompt: `You are an expert SQL query generator. You will be given a natural language question and a database codebook.
 
-  You will generate a SQL query that answers the question using the codebook. Use only the tables and columns described in the codebook.
+  You will generate a SQL query that answers the question using the codebook.
+  IMPORTANT: All queries must be against a table named 'ess_data'.
 
   Question: {{{question}}}
   Codebook: {{{codebook}}}
