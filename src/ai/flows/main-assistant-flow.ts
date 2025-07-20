@@ -55,6 +55,8 @@ const mainAssistantFlow = ai.defineFlow(
       
       After using the tool, analyze the data returned and formulate a comprehensive, easy-to-understand answer for the user.
       If you receive an error from the tool, explain the error to the user in a helpful way.
+      
+      IMPORTANT: If the tool returns debugging logs, you MUST display them in your final answer inside a collapsible code block titled '### Debugging Logs'.
       Always present the final answer in a clear and conversational tone.`;
 
     // Initial call to the model
@@ -86,7 +88,7 @@ const mainAssistantFlow = ai.defineFlow(
     
     // If there's text content, use that as the answer.
     if (textContent) {
-        return { answer: textContent };
+      return { answer: textContent };
     }
 
     // Fallback if the model truly didn't respond with any text.
