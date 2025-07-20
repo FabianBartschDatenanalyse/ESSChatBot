@@ -1,28 +1,32 @@
 'use server';
 
-import { initDb, db } from './data-loader';
+import { initDb, type Database } from './data-loader';
 
-let isDbInitialized = false;
+let db: Database | null = null;
+let dbInitializationPromise: Promise<Database> | null = null;
+
+async function getDb(): Promise<Database> {
+    if (db) {
+        return db;
+    }
+    if (!dbInitializationPromise) {
+        dbInitializationPromise = initDb().then(initializedDb => {
+            db = initializedDb;
+            return db;
+        });
+    }
+    return dbInitializationPromise;
+}
 
 export async function executeQuery(query: string): Promise<{ results?: any[], error?: string }> {
-    if (!isDbInitialized) {
-        try {
-            await initDb();
-            isDbInitialized = true;
-        } catch (e: any) {
-             const error = `Database initialization failed: ${e.message}`;
-             console.error(error);
-             return { error };
-        }
-    }
-
     try {
-        const results = db.exec(query);
+        const currentDb = await getDb();
+        const results = currentDb.exec(query);
+
         if (results.length === 0) {
-            return { results: [] };
+            return { results: [{ columns: [], rows: [] }] };
         }
         
-        // sql.js returns an array of result objects. We'll use the first one.
         const queryResult = results[0];
         const formattedResults = {
             columns: queryResult.columns,
@@ -39,6 +43,6 @@ export async function executeQuery(query: string): Promise<{ results?: any[], er
 
     } catch (e: any) {
         console.error("SQL.js execution error:", e);
-        return { error: e.message };
+        return { error: `Query execution failed: ${e.message}` };
     }
 }
