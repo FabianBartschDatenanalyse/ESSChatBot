@@ -1,1 +1,0 @@
-Bitte kopieren Sie den Inhalt Ihres Codebuchs hier hinein. Sobald Sie fertig sind, geben Sie mir Bescheid, und ich werde die Datei `src/lib/codebook.ts` für Sie aktualisieren.
