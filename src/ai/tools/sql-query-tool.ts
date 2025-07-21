@@ -4,7 +4,6 @@
  *
  * This file defines the `executeQueryTool`, which allows an AI agent to
  * query a database. The tool takes a natural language query, converts
-
  * it to SQL, executes it, and returns the result.
  */
 import { ai } from '@/ai/genkit';
@@ -40,16 +39,14 @@ export const executeQueryTool = ai.defineTool(
           question: input.nlQuestion,
           codebook,
         });
+        sqlQuery = suggestion.sqlQuery;
       } catch (suggestionError: any) {
         const errorMsg = `Failed to get a valid SQL query suggestion from the AI model. Error: ${suggestionError.message || 'Unknown error'}`;
         return { error: errorMsg };
       }
-
-      sqlQuery = suggestion.sqlQuery;
-
+      
       if (!sqlQuery || sqlQuery.trim() === '') {
-        const errorMsg = 'AI model returned an empty SQL query.';
-        return { error: errorMsg, sqlQuery: '' };
+        return { error: 'AI model returned an empty SQL query.', sqlQuery: '' };
       }
       
       const result = await executeQuery(sqlQuery);
