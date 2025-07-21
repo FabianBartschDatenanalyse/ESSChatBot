@@ -1,0 +1,18 @@
+Please paste the full content of your codebook into this file.
+
+The `embed-codebook.ts` script will read this file to create the vector embeddings and store them in your Supabase database.
+
+Example of content structure:
+
+Variable: cntry
+Label: Country
+Description: This variable indicates the country in which the survey was conducted.
+Values:
+AT: Austria
+BE: Belgium
+...
+
+Variable: ppltrst
+Label: Most people can be trusted or you can't be too careful
+Description: Generally speaking, would you say that most people can be trusted, or that you can't be too careful in dealing with people? 0 means you can't be too careful and 10 means that most people can be trusted.
+...
