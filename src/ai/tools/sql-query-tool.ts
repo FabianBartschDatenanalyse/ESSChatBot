@@ -1,20 +1,24 @@
 'use server';
+
 /**
  * @fileOverview A Genkit tool for generating and executing SQL queries.
  *
  * This file defines the `executeQueryTool`, which allows an AI agent to
  * query a database. The tool takes a natural language query, converts
-
  * it to SQL, executes it, and returns the result.
  */
+
 import { ai } from '@/ai/genkit';
 import { executeQuery } from '@/lib/data-service';
 import { z } from 'zod';
-import { suggestSqlQuery } from '../flows/suggest-sql-query';
+import { suggestSqlQuery, type SuggestSqlQueryOutput } from '../flows/suggest-sql-query';
 import { getCodebookAsString } from '@/lib/codebook';
 
-// We will return a stringified JSON so the LLM can easily display it.
-const toolOutputSchema = z.string(); 
+const toolOutputSchema = z.object({
+  sqlQuery: z.string().optional(),
+  data: z.any().optional(),
+  error: z.string().optional(),
+});
 
 export const executeQueryTool = ai.defineTool(
   {
@@ -26,44 +30,57 @@ export const executeQueryTool = ai.defineTool(
     outputSchema: toolOutputSchema,
   },
   async (input) => {
-    const debugLog: Record<string, any> = {};
-    debugLog.toolCalledWith = input.nlQuestion;
-    
     let sqlQuery = '';
 
     try {
       const codebook = getCodebookAsString();
-      
-      debugLog.suggestionRequest = 'Requesting SQL query suggestion...';
-      const suggestion = await suggestSqlQuery({
-        question: input.nlQuestion,
-        codebook,
-      });
-      
-      sqlQuery = suggestion.sqlQuery;
-      debugLog.suggestionResponse = `Received SQL query suggestion: ${sqlQuery}`;
+
+      // Step 1: Generate SQL
+      let suggestion: SuggestSqlQueryOutput;
+      try {
+        suggestion = await suggestSqlQuery({
+          question: input.nlQuestion,
+          codebook,
+        });
+        sqlQuery = suggestion.sqlQuery;
+      } catch (suggestionError: any) {
+        const errorMsg = `❌ Failed to generate SQL query. Error: ${suggestionError.message || 'Unknown error'}`;
+        console.error('[executeQueryTool]', errorMsg);
+        return { error: errorMsg };
+      }
 
       if (!sqlQuery || sqlQuery.trim() === '') {
-        debugLog.error = 'AI model returned an empty SQL query.';
-        return JSON.stringify(debugLog);
+        const errorMsg = '❌ AI model returned an empty SQL query.';
+        console.error('[executeQueryTool]', errorMsg);
+        return { error: errorMsg, sqlQuery };
       }
-      
-      debugLog.executionRequest = 'Executing SQL query...';
+
+      // Step 2: Execute SQL
       const result = await executeQuery(sqlQuery);
-      debugLog.executionResponse = result;
 
       if (result.error) {
-        debugLog.finalStatus = `Query execution failed: ${result.error}`;
-      } else if (result.results && result.results.length > 0 && result.results[0].rows.length > 0) {
-        debugLog.finalStatus = `Success: Returning data with ${result.results[0].rows.length} rows.`;
-      } else {
-        debugLog.finalStatus = 'Success (no data): Query executed successfully, but returned no data.';
+        console.error('[executeQueryTool] Query execution failed:', result.error);
+        return { error: `❌ Query execution failed: ${result.error}`, sqlQuery };
       }
 
+      const dataset = result.results?.[0];
+      if (
+        dataset &&
+        Array.isArray(dataset.rows) &&
+        dataset.rows.length > 0 &&
+        Array.isArray(dataset.columns) &&
+        dataset.columns.length > 0
+      ) {
+        return { data: dataset.rows, sqlQuery };
+      }
+
+      console.warn('[executeQueryTool] SQL executed successfully, but no usable data returned.');
+      return { data: [], sqlQuery };
+
     } catch (e: any) {
-      debugLog.error = `An unexpected error occurred in executeQueryTool: ${e.message || 'Unknown error'}`;
+      const errorMsg = `💥 Unexpected error in executeQueryTool: ${e.message || 'Unknown error'}`;
+      console.error('[executeQueryTool]', errorMsg);
+      return { error: errorMsg, sqlQuery };
     }
-    
-    return JSON.stringify(debugLog, null, 2);
   }
 );

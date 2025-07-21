@@ -39,50 +39,31 @@ const mainAssistantFlow = ai.defineFlow(
   async (input) => {
     
     const initialPrompt = `You are an expert data analyst and assistant for the European Social Survey (ESS).
-      Your goal is to answer the user's question as accurately as possible.
-      You have access to a tool that can query the ESS database directly.
-      
-      Here is the database codebook to help you understand the available data:
-      --- CODEBOOK START ---
-      ${input.codebook}
-      --- CODEBOOK END ---
+Your goal is to answer the user's question as accurately as possible.
+You have access to a tool that can query the ESS database directly.
 
-      User's question: "${input.question}"
+Here is the database codebook to help you understand the available data:
+--- CODEBOOK START ---
+${input.codebook}
+--- CODEBOOK END ---
 
-      First, analyze the user's question.
-      - If the question can be answered by querying the data (e.g., "what is the average...", "show me data for...", "compare countries..."), you MUST use the executeQueryTool. Formulate a precise SQL query to get the necessary data by providing a natural language question to the tool.
-      - If the question is about the codebook itself, the survey's methodology, or a general question, answer it directly without using the tool.
-      
-      After using the tool, analyze the data returned and formulate a comprehensive, easy-to-understand answer for the user.
-      
-      IMPORTANT: When you display the results from a query, you MUST also display the SQL query that was used to retrieve the data.
-      
-      VERY IMPORTANT: You MUST also include a 'Debugging Logs' section at the end of your response. This section must be enclosed in a markdown code block and contain the full, stringified JSON output from the 'executeQueryTool'. This is for debugging purposes.`;
+User's question: "${input.question}"
 
-    // Initial call to the model
-    let llmResponse = await ai.generate({
+First, analyze the user's question.
+- If the question can be answered by querying the data (e.g., "what is the average...", "show me data for...", "compare countries..."), you MUST use the executeQueryTool.
+- If the question is about the codebook itself, the survey's methodology, or a general question, answer it directly without using the tool.
+
+When you receive the result from the 'executeQueryTool', you MUST follow these instructions:
+- If the result contains a 'data' array with items, analyze the data and formulate a comprehensive, easy-to-understand answer for the user.
+- If the result contains an empty 'data' array, inform the user that the query was successful but returned no data.
+- If the result contains an 'error' field, you MUST display the error message to the user.
+- In all cases where the tool was used, you MUST also display the exact SQL query that was used to retrieve the data. Enclose the query in a markdown code block.`;
+
+    const llmResponse = await ai.generate({
       model: 'openai/gpt-4o',
       prompt: initialPrompt,
       tools: [executeQueryTool],
     });
-
-    // Check if the model wants to use a tool
-    const toolRequest = llmResponse.toolRequest;
-    if (toolRequest) {
-      // Execute the requested tool
-      const toolResult = await executeQueryTool.fn(toolRequest.input);
-
-      // Send the tool's result back to the model to get the final answer
-      llmResponse = await ai.generate({
-        model: 'openai/gpt-4o',
-        prompt: [
-          { text: initialPrompt },
-          { toolRequest: toolRequest },
-          { toolResponse: { name: executeQueryTool.name, output: toolResult } }
-        ],
-        tools: [executeQueryTool],
-      });
-    }
     
     const textContent = llmResponse.text;
     
@@ -90,7 +71,6 @@ const mainAssistantFlow = ai.defineFlow(
       return { answer: textContent };
     }
 
-    // Fallback if the model truly didn't respond with any text.
     throw new Error("The model did not return a valid response.");
   }
 );
