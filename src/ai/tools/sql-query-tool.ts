@@ -34,10 +34,13 @@ export const executeQueryTool = ai.defineTool(
       const codebook = getCodebookAsString();
       
       debugLog.suggestionRequest = 'Requesting SQL query suggestion...';
+      // The suggestSqlQuery flow returns an object { sqlQuery: '...' }
       const suggestion = await suggestSqlQuery({
         question: input.nlQuestion,
         codebook,
       });
+      
+      // Directly access the property
       sqlQuery = suggestion.sqlQuery;
       debugLog.suggestionResponse = `Received SQL query suggestion: ${sqlQuery}`;
 
