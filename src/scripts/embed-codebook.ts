@@ -1,5 +1,5 @@
 // To run this script, use the command: `npx tsx src/scripts/embed-codebook.ts`
-// Make sure you have your .env file set up with SUPABASE_URL, SUPABASE_SERVICE_KEY, and OPENAI_API_KEY
+// Make sure you have your .env file set up with NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, and OPENAI_API_KEY
 
 import { config } from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
@@ -10,17 +10,17 @@ import { v4 as uuidv4 } from 'uuid';
 
 config({ path: '.env' });
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY || !OPENAI_API_KEY) {
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !OPENAI_API_KEY) {
   throw new Error(
-    'Missing required environment variables: SUPABASE_URL, SUPABASE_SERVICE_KEY, OPENAI_API_KEY'
+    'Missing required environment variables: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, OPENAI_API_KEY'
   );
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const embeddings = new OpenAIEmbeddings({
   openAIApiKey: OPENAI_API_KEY,
   model: 'text-embedding-3-small',

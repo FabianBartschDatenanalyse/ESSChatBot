@@ -1,7 +1,7 @@
 'use server';
 
 import { OpenAIEmbeddings } from '@langchain/openai';
-import { supabase } from './supabase-service-role'; // Use the service role client for embeddings
+import { supabase } from './supabase'; // Use the public (anon) client
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -21,6 +21,11 @@ const embeddings = new OpenAIEmbeddings({
  * @returns A promise that resolves to an array of document sections.
  */
 export async function searchCodebook(query: string, matchCount: number): Promise<{ content: string; similarity: number }[]> {
+  if (!supabase) {
+    console.error('Supabase client not initialized. Cannot perform vector search.');
+    return [];
+  }
+  
   try {
     // 1. Create an embedding for the user's query
     const queryEmbedding = await embeddings.embedQuery(query);
