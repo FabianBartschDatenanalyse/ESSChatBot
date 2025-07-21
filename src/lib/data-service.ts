@@ -1,6 +1,6 @@
 'use server';
 
-import { supabase } from './supabase-service-role'; // Use the service role client for direct queries
+import { supabase } from './supabase'; // Use the public (anon) client for safe queries
 
 export async function executeQuery(query: string): Promise<{ data?: any[], error?: string }> {
   console.log('[data-service] Executing query:', query);
