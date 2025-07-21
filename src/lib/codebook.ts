@@ -1,3 +1,7 @@
+// This file is now deprecated in favor of the RAG approach using the vector database.
+// The `getCodebookAsString` function is no longer used by the main assistant flow.
+// It is kept here for potential use in other parts of the application or for legacy reference.
+
 export type CodebookVariable = {
   id: string;
   label: string;
@@ -122,7 +126,7 @@ export const codebook: CodebookVariable[] = [
     values: [
       { value: '1', label: 'Very good' },
       { value: '2', label: 'Good' },
-      { value: '3', label: 'Fair' },
+      { value: '3', 'label': 'Fair' },
       { value: '4', label: 'Bad' },
       { value: '5', label: 'Very bad' },
     ],
@@ -158,6 +162,9 @@ export const codebook: CodebookVariable[] = [
   },
 ];
 
+/**
+ * @deprecated This function is deprecated in favor of the RAG approach.
+ */
 export const getCodebookAsString = () => {
     return codebook.map(v => `Variable: ${v.id} (${v.label}): ${v.description}`).join('\n');
 }

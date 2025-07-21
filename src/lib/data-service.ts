@@ -1,29 +1,34 @@
 'use server';
 
-import { supabase } from './supabase';
+import { supabase } from './supabase-service-role'; // Use the service role client for direct queries
 
-export async function executeQuery(query: string): Promise<{ results?: any[], error?: string }> {
+export async function executeQuery(query: string): Promise<{ data?: any[], error?: string }> {
   console.log('[data-service] Executing query:', query);
+  
+  if (!supabase) {
+    const error = "Supabase client is not initialized. Please check your environment variables."
+    console.error(`[data-service] ${error}`);
+    return { error };
+  }
 
   try {
-    // The RPC call returns a wrapper object with a 'data' property containing the actual function response.
-    const { data: rpcFunctionResponse, error: rpcError } = await supabase
+    const { data: rpcResponse, error: rpcError } = await supabase
       .rpc('execute_safe_query', { query_text: query });
 
     if (rpcError) {
       console.error('[data-service] Supabase RPC error:', rpcError.message);
       return { error: `Supabase RPC call failed: ${rpcError.message}` };
     }
-
-    // The function itself returns a JSON object like { status: '...', data: [...] }
-    const queryResult = rpcFunctionResponse;
-    console.log('[data-service] Response from database function:', JSON.stringify(queryResult, null, 2));
-
-    if (!queryResult) {
+    
+    if (!rpcResponse) {
       const errorMessage = 'Received null or empty response from database function.';
       console.error(`[data-service] ${errorMessage}`);
       return { error: errorMessage };
     }
+    
+    // The rpcResponse is the direct JSON object from the function: { status: '...', data: [...] }
+    const queryResult = rpcResponse;
+    console.log('[data-service] Response from database function:', JSON.stringify(queryResult, null, 2));
     
     if (queryResult.status === 'error') {
       console.error('[data-service] Database function returned error:', queryResult.error);
@@ -31,23 +36,8 @@ export async function executeQuery(query: string): Promise<{ results?: any[], er
     }
 
     if (queryResult.status === 'success') {
-      const data = queryResult.data;
-      console.log('[data-service] Success. Extracted data:', JSON.stringify(data, null, 2));
-      
-      if (!data || (Array.isArray(data) && data.length === 0)) {
-        console.log('[data-service] Query successful, but no rows returned.');
-        // Return a structure that the DataTable component can handle
-        return { results: [{ columns: [], rows: [] }] };
-      }
-
-      // Format for DataTable: an array containing one result object
-      const columns = Object.keys(data[0] || {});
-      const formattedResult = {
-        columns: columns,
-        rows: data,
-      };
-
-      return { results: [formattedResult] };
+      console.log('[data-service] Success. Returning data.');
+      return { data: queryResult.data };
     }
 
     const unexpectedFormatError = 'Received an unexpected response format from the database function.';

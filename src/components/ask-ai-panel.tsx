@@ -5,7 +5,6 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { mainAssistant } from '@/ai/flows/main-assistant-flow';
-import { getCodebookAsString } from '@/lib/codebook';
 
 import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
@@ -42,8 +41,7 @@ export default function AskAiPanel() {
     form.reset();
 
     try {
-      const codebook = getCodebookAsString();
-      const result = await mainAssistant({ question: values.question, codebook });
+      const result = await mainAssistant({ question: values.question });
       const assistantMessage: Message = { role: 'assistant', content: result.answer };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {

@@ -12,7 +12,7 @@ import { ai } from '@/ai/genkit';
 import { executeQuery } from '@/lib/data-service';
 import { z } from 'zod';
 import { suggestSqlQuery, type SuggestSqlQueryOutput } from '../flows/suggest-sql-query';
-import { getCodebookAsString } from '@/lib/codebook';
+import { searchCodebook } from '@/lib/vector-search';
 
 const toolOutputSchema = z.object({
   sqlQuery: z.string().optional(),
@@ -33,14 +33,18 @@ export const executeQueryTool = ai.defineTool(
     let sqlQuery = '';
 
     try {
-      const codebook = getCodebookAsString();
+      // Step 1: Get relevant codebook context for the SQL generation
+      const searchResults = await searchCodebook(input.nlQuestion, 5); // Get top 5 results for SQL generation
+      const codebookContext = searchResults
+        .map(result => `- ${result.content}`)
+        .join('\n');
 
-      // Step 1: Generate SQL
+      // Step 2: Generate SQL
       let suggestion: SuggestSqlQueryOutput;
       try {
         suggestion = await suggestSqlQuery({
           question: input.nlQuestion,
-          codebook,
+          codebook: codebookContext,
         });
         sqlQuery = suggestion.sqlQuery;
       } catch (suggestionError: any) {
@@ -55,27 +59,24 @@ export const executeQueryTool = ai.defineTool(
         return { error: errorMsg, sqlQuery };
       }
 
-      // Step 2: Execute SQL
+      // Step 3: Execute SQL
       const result = await executeQuery(sqlQuery);
-
+      
       if (result.error) {
         console.error('[executeQueryTool] Query execution failed:', result.error);
         return { error: `❌ Query execution failed: ${result.error}`, sqlQuery };
       }
 
-      const dataset = result.results?.[0];
-      if (
-        dataset &&
-        Array.isArray(dataset.rows) &&
-        dataset.rows.length > 0 &&
-        Array.isArray(dataset.columns) &&
-        dataset.columns.length > 0
-      ) {
-        return { data: dataset.rows, sqlQuery };
+      if (result.data) {
+         if (result.data.length > 0) {
+            return { data: result.data, sqlQuery };
+         } else {
+            console.warn('[executeQueryTool] SQL executed successfully, but no usable data returned.');
+            return { data: [], sqlQuery };
+         }
       }
-
-      console.warn('[executeQueryTool] SQL executed successfully, but no usable data returned.');
-      return { data: [], sqlQuery };
+      
+      return { error: 'No data or error returned from executeQuery', sqlQuery };
 
     } catch (e: any) {
       const errorMsg = `💥 Unexpected error in executeQueryTool: ${e.message || 'Unknown error'}`;
