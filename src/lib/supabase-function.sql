@@ -1,5 +1,8 @@
--- Drop the old function if it exists to avoid conflicts.
-DROP FUNCTION IF EXISTS execute_safe_query(query_text TEXT);
+-- This SQL code should be executed in your Supabase SQL Editor.
+-- It creates or replaces a secure function for running read-only queries.
+
+-- Drop the existing function if it exists to ensure a clean setup.
+DROP FUNCTION IF EXISTS execute_safe_query(text);
 
 -- Create or replace the function to execute safe, read-only SELECT queries.
 CREATE OR REPLACE FUNCTION execute_safe_query(query_text TEXT)
