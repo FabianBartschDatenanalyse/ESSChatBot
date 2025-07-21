@@ -55,7 +55,9 @@ const mainAssistantFlow = ai.defineFlow(
       
       After using the tool, analyze the data returned and formulate a comprehensive, easy-to-understand answer for the user.
       
-      IMPORTANT: When you display the results from a query, you MUST also display the SQL query that was used to retrieve the data. Enclose the SQL query in a markdown code block.`;
+      IMPORTANT: When you display the results from a query, you MUST also display the SQL query that was used to retrieve the data.
+      
+      VERY IMPORTANT: You MUST also include a 'Debugging Logs' section at the end of your response. This section must be enclosed in a markdown code block and contain the full, stringified JSON output from the 'executeQueryTool'. This is for debugging purposes.`;
 
     // Initial call to the model
     let llmResponse = await ai.generate({

@@ -9,14 +9,11 @@
 import { ai } from '@/ai/genkit';
 import { executeQuery } from '@/lib/data-service';
 import { z } from 'zod';
-import { suggestSqlQuery, type SuggestSqlQueryOutput } from '../flows/suggest-sql-query';
+import { suggestSqlQuery } from '../flows/suggest-sql-query';
 import { getCodebookAsString } from '@/lib/codebook';
 
-const toolOutputSchema = z.object({
-  sqlQuery: z.string().optional(),
-  data: z.any().optional(),
-  error: z.string().optional(),
-});
+// We will return a stringified JSON so the LLM can easily display it.
+const toolOutputSchema = z.string(); 
 
 export const executeQueryTool = ai.defineTool(
   {
@@ -28,54 +25,44 @@ export const executeQueryTool = ai.defineTool(
     outputSchema: toolOutputSchema,
   },
   async (input) => {
+    const debugLog: Record<string, any> = {};
+    debugLog.toolCalledWith = input.nlQuestion;
+    
     let sqlQuery = '';
-    console.log('[executeQueryTool] Tool called with natural language question:', input.nlQuestion);
 
     try {
       const codebook = getCodebookAsString();
       
-      let suggestion: SuggestSqlQueryOutput;
-      try {
-        console.log('[executeQueryTool] Requesting SQL query suggestion...');
-        suggestion = await suggestSqlQuery({
-          question: input.nlQuestion,
-          codebook,
-        });
-        sqlQuery = suggestion.sqlQuery;
-        console.log('[executeQueryTool] Received SQL query suggestion:', sqlQuery);
-      } catch (suggestionError: any) {
-        const errorMsg = `Failed to get a valid SQL query suggestion from the AI model. Error: ${suggestionError.message || 'Unknown error'}`;
-        console.error('[executeQueryTool]', errorMsg);
-        return { error: errorMsg };
-      }
-      
+      debugLog.suggestionRequest = 'Requesting SQL query suggestion...';
+      const suggestion = await suggestSqlQuery({
+        question: input.nlQuestion,
+        codebook,
+      });
+      sqlQuery = suggestion.sqlQuery;
+      debugLog.suggestionResponse = `Received SQL query suggestion: ${sqlQuery}`;
+
       if (!sqlQuery || sqlQuery.trim() === '') {
-        const errorMsg = 'AI model returned an empty SQL query.';
-        console.error('[executeQueryTool]', errorMsg);
-        return { error: errorMsg, sqlQuery: '' };
+        debugLog.error = 'AI model returned an empty SQL query.';
+        return JSON.stringify(debugLog);
       }
       
-      console.log('[executeQueryTool] Executing SQL query...');
+      debugLog.executionRequest = 'Executing SQL query...';
       const result = await executeQuery(sqlQuery);
-      console.log('[executeQueryTool] Received result from data-service:', JSON.stringify(result, null, 2));
+      debugLog.executionResponse = result; // This will contain either {results} or {error}
 
       if (result.error) {
-        console.error('[executeQueryTool] Query execution failed:', result.error);
-        return { error: result.error, sqlQuery };
+        debugLog.finalStatus = `Query execution failed: ${result.error}`;
+      } else if (result.results && result.results.length > 0 && result.results[0].rows.length > 0) {
+        debugLog.finalStatus = `Success: Returning data with ${result.results[0].rows.length} rows.`;
+      } else {
+        debugLog.finalStatus = 'Success (no data): Query executed successfully, but returned no data.';
       }
-      
-      if (result.results && result.results.length > 0 && result.results[0].rows.length > 0) {
-        console.log(`[executeQueryTool] Success: Returning data with ${result.results[0].rows.length} rows.`);
-        return { data: result.results[0].rows, sqlQuery };
-      }
-      
-      console.log('[executeQueryTool] Success (no data): Query executed successfully, but returned no data.');
-      return { data: [], sqlQuery };
 
     } catch (e: any) {
-      const errorMsg = `An unexpected error occurred in executeQueryTool: ${e.message || 'Unknown error'}`;
-      console.error('[executeQueryTool]', errorMsg);
-      return { error: errorMsg, sqlQuery };
+      debugLog.error = `An unexpected error occurred in executeQueryTool: ${e.message || 'Unknown error'}`;
     }
+    
+    // Return the entire log as a stringified JSON for the LLM to display
+    return JSON.stringify(debugLog, null, 2);
   }
 );
