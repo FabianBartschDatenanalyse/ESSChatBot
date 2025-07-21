@@ -29,40 +29,52 @@ export const executeQueryTool = ai.defineTool(
   },
   async (input) => {
     let sqlQuery = '';
+    console.log('[executeQueryTool] Tool called with natural language question:', input.nlQuestion);
 
     try {
       const codebook = getCodebookAsString();
       
       let suggestion: SuggestSqlQueryOutput;
       try {
+        console.log('[executeQueryTool] Requesting SQL query suggestion...');
         suggestion = await suggestSqlQuery({
           question: input.nlQuestion,
           codebook,
         });
         sqlQuery = suggestion.sqlQuery;
+        console.log('[executeQueryTool] Received SQL query suggestion:', sqlQuery);
       } catch (suggestionError: any) {
         const errorMsg = `Failed to get a valid SQL query suggestion from the AI model. Error: ${suggestionError.message || 'Unknown error'}`;
+        console.error('[executeQueryTool]', errorMsg);
         return { error: errorMsg };
       }
       
       if (!sqlQuery || sqlQuery.trim() === '') {
-        return { error: 'AI model returned an empty SQL query.', sqlQuery: '' };
+        const errorMsg = 'AI model returned an empty SQL query.';
+        console.error('[executeQueryTool]', errorMsg);
+        return { error: errorMsg, sqlQuery: '' };
       }
       
+      console.log('[executeQueryTool] Executing SQL query...');
       const result = await executeQuery(sqlQuery);
+      console.log('[executeQueryTool] Received result from data-service:', JSON.stringify(result, null, 2));
 
       if (result.error) {
+        console.error('[executeQueryTool] Query execution failed:', result.error);
         return { error: result.error, sqlQuery };
       }
       
       if (result.results && result.results.length > 0 && result.results[0].rows.length > 0) {
+        console.log(`[executeQueryTool] Success: Returning data with ${result.results[0].rows.length} rows.`);
         return { data: result.results[0].rows, sqlQuery };
       }
       
+      console.log('[executeQueryTool] Success (no data): Query executed successfully, but returned no data.');
       return { data: [], sqlQuery };
 
     } catch (e: any) {
       const errorMsg = `An unexpected error occurred in executeQueryTool: ${e.message || 'Unknown error'}`;
+      console.error('[executeQueryTool]', errorMsg);
       return { error: errorMsg, sqlQuery };
     }
   }
