@@ -6,7 +6,8 @@ export async function executeQuery(query: string): Promise<{ results?: any[], er
   console.log('[data-service] Executing query:', query);
 
   try {
-    const { data: rpcResponseRaw, error: rpcError } = await supabase
+    // The RPC call returns a wrapper object with a 'data' property containing the actual function response.
+    const { data: rpcFunctionResponse, error: rpcError } = await supabase
       .rpc('execute_safe_query', { query_text: query });
 
     if (rpcError) {
@@ -14,46 +15,44 @@ export async function executeQuery(query: string): Promise<{ results?: any[], er
       return { error: `Supabase RPC call failed: ${rpcError.message}` };
     }
 
-    console.log('[data-service] Raw response from Supabase RPC:', JSON.stringify(rpcResponseRaw, null, 2));
+    // The function itself returns a JSON object like { status: '...', data: [...] }
+    const queryResult = rpcFunctionResponse;
+    console.log('[data-service] Response from database function:', JSON.stringify(queryResult, null, 2));
 
-    // Die RPC-Funktion gibt ein Array mit einem Objekt zurück, das wir extrahieren müssen
-    const rpcResponse = Array.isArray(rpcResponseRaw) && rpcResponseRaw.length > 0
-      ? rpcResponseRaw[0]
-      : rpcResponseRaw;
-
-    console.log('[data-service] Processed RPC response object:', JSON.stringify(rpcResponse, null, 2));
-
-    if (!rpcResponse) {
-      console.error('[data-service] Error: Received no or empty response from database function.');
-      return { error: 'Received no or empty response from database function.' };
+    if (!queryResult) {
+      const errorMessage = 'Received null or empty response from database function.';
+      console.error(`[data-service] ${errorMessage}`);
+      return { error: errorMessage };
+    }
+    
+    if (queryResult.status === 'error') {
+      console.error('[data-service] Database function returned error:', queryResult.error);
+      return { error: queryResult.error };
     }
 
-    if (rpcResponse.status === 'error') {
-      console.error('[data-service] Database function returned error:', rpcResponse.error);
-      return { error: rpcResponse.error };
-    }
-
-    if (rpcResponse.status === 'success') {
-      const resultData = rpcResponse.data;
-      console.log('[data-service] Extracted data on success:', JSON.stringify(resultData, null, 2));
-
-      if (!resultData || (Array.isArray(resultData) && resultData.length === 0)) {
-        console.log('[data-service] Success, but no rows returned.');
+    if (queryResult.status === 'success') {
+      const data = queryResult.data;
+      console.log('[data-service] Success. Extracted data:', JSON.stringify(data, null, 2));
+      
+      if (!data || (Array.isArray(data) && data.length === 0)) {
+        console.log('[data-service] Query successful, but no rows returned.');
+        // Return a structure that the DataTable component can handle
         return { results: [{ columns: [], rows: [] }] };
       }
 
-      const columns = Object.keys(resultData[0] || {});
-      const formattedResults = {
+      // Format for DataTable: an array containing one result object
+      const columns = Object.keys(data[0] || {});
+      const formattedResult = {
         columns: columns,
-        rows: resultData,
+        rows: data,
       };
 
-      console.log('[data-service] Formatted results:', JSON.stringify(formattedResults, null, 2));
-      return { results: [formattedResults] };
+      return { results: [formattedResult] };
     }
 
-    console.error('[data-service] Unexpected response format.');
-    return { error: 'Received an unexpected response format from the database function.' };
+    const unexpectedFormatError = 'Received an unexpected response format from the database function.';
+    console.error(`[data-service] ${unexpectedFormatError}`, queryResult);
+    return { error: unexpectedFormatError };
 
   } catch (e: any) {
     console.error('[data-service] Exception during query execution:', e.message);

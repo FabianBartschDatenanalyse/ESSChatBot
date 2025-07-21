@@ -4,6 +4,7 @@
  *
  * This file defines the `executeQueryTool`, which allows an AI agent to
  * query a database. The tool takes a natural language query, converts
+
  * it to SQL, executes it, and returns the result.
  */
 import { ai } from '@/ai/genkit';
@@ -34,13 +35,11 @@ export const executeQueryTool = ai.defineTool(
       const codebook = getCodebookAsString();
       
       debugLog.suggestionRequest = 'Requesting SQL query suggestion...';
-      // The suggestSqlQuery flow returns an object { sqlQuery: '...' }
       const suggestion = await suggestSqlQuery({
         question: input.nlQuestion,
         codebook,
       });
       
-      // Directly access the property
       sqlQuery = suggestion.sqlQuery;
       debugLog.suggestionResponse = `Received SQL query suggestion: ${sqlQuery}`;
 
@@ -51,7 +50,7 @@ export const executeQueryTool = ai.defineTool(
       
       debugLog.executionRequest = 'Executing SQL query...';
       const result = await executeQuery(sqlQuery);
-      debugLog.executionResponse = result; // This will contain either {results} or {error}
+      debugLog.executionResponse = result;
 
       if (result.error) {
         debugLog.finalStatus = `Query execution failed: ${result.error}`;
@@ -65,7 +64,6 @@ export const executeQueryTool = ai.defineTool(
       debugLog.error = `An unexpected error occurred in executeQueryTool: ${e.message || 'Unknown error'}`;
     }
     
-    // Return the entire log as a stringified JSON for the LLM to display
     return JSON.stringify(debugLog, null, 2);
   }
 );
