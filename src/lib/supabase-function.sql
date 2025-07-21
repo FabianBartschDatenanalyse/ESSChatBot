@@ -1,21 +1,50 @@
--- Save this function in your Supabase project's SQL Editor
--- Go to Database -> SQL Editor -> "New query"
+-- Drop the old function if it exists to avoid conflicts.
+DROP FUNCTION IF EXISTS execute_safe_query(query_text TEXT);
 
-create or replace function execute_safe_query(query_text text)
-returns json[]
-language plpgsql
-as $$
-begin
-  -- IMPORTANT: This function is designed for safe, read-only queries.
-  -- It prevents modifications to the database by checking the query text.
-  -- Do not remove this check unless you understand the security implications.
-  if lower(query_text) similar to '%(insert|update|delete|truncate|drop|alter|create|grant|revoke)%' then
-    raise exception 'Modification queries are not allowed.';
-  end if;
+-- Create or replace the function to execute safe, read-only SELECT queries.
+CREATE OR REPLACE FUNCTION execute_safe_query(query_text TEXT)
+RETURNS JSON -- The function will return a single JSON object.
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    -- Variable to hold the JSON result of the query.
+    query_result JSON;
+    -- Variable to hold the final JSON response, including status.
+    response JSON;
+BEGIN
+    -- Check if the query is a read-only SELECT statement.
+    -- This is a security measure to prevent modifications to the database.
+    IF lower(query_text) LIKE 'select%' THEN
+        -- Execute the query and aggregate the results into a single JSON array.
+        EXECUTE format('SELECT json_agg(t) FROM (%s) t', query_text)
+        INTO query_result;
 
-  return (
-    select array_agg(row_to_json(t))
-    from (execute query_text) t
-  );
-end;
+        -- Construct a success response object.
+        -- The coalesce function handles cases where the query returns no rows,
+        -- ensuring we return an empty array '[]' instead of NULL.
+        response := json_build_object(
+            'status', 'success',
+            'data', coalesce(query_result, '[]'::json)
+        );
+    ELSE
+        -- If the query is not a SELECT statement, construct an error response.
+        response := json_build_object(
+            'status', 'error',
+            'error', 'Only SELECT queries are allowed.'
+        );
+    END IF;
+
+    -- Return the final JSON response.
+    RETURN response;
+EXCEPTION
+    -- Catch any SQL errors during execution (e.g., syntax errors, missing tables).
+    WHEN others THEN
+        -- Construct a detailed error response.
+        response := json_build_object(
+            'status', 'error',
+            'error', SQLERRM -- SQLERRM is a system variable containing the error message.
+        );
+        -- Return the error response.
+        RETURN response;
+END;
 $$;
