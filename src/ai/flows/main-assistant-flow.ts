@@ -12,7 +12,7 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'zod';
+import {Message, z} from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
 
 const MessageSchema = z.object({
@@ -45,17 +45,12 @@ const mainAssistantFlow = ai.defineFlow(
   },
   async (input) => {
     
-    const initialPrompt = `You are an expert data analyst and assistant for the European Social Survey (ESS).
+    const systemPrompt = `You are an expert data analyst and assistant for the European Social Survey (ESS).
 Your goal is to answer the user's question as accurately as possible by querying the ESS database.
 You have access to one tool: \`executeQueryTool\`.
 
-This is the conversation history. Use it to understand the context of the user's question:
---- HISTORY START ---
-${(input.history || []).map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n')}
---- HISTORY END ---
-
 Here is your workflow based on the user's LATEST question:
-1.  Analyze the user's question: "${input.question}"
+1.  Analyze the user's question.
 2.  You MUST use the \`executeQueryTool\` to answer the question if it requires data. Pass the user's question directly to the 'nlQuestion' parameter of the tool.
 3.  When you get a result from the tool, analyze it:
     - If the tool returns data, explain the data to the user in a clear, easy-to-understand way.
@@ -65,7 +60,9 @@ Your final answer should be ONLY the natural language response. Do not include t
 
     const llmResponse = await ai.generate({
       model: 'openai/gpt-4o',
-      prompt: initialPrompt,
+      system: systemPrompt,
+      prompt: input.question,
+      history: input.history || [],
       tools: [executeQueryTool],
     });
     
