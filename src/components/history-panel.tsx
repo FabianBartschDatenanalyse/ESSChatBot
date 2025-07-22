@@ -39,6 +39,7 @@ export default function HistoryPanel({ history }: HistoryPanelProps) {
                 <p className="truncate font-medium text-sm">{item.question}</p>
             </AccordionTrigger>
             <AccordionContent className="space-y-4">
+                <p className="text-sm text-foreground/80">{item.answer}</p>
                 {item.sqlQuery && (
                 <div className="space-y-2">
                     <h4 className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
