@@ -12,7 +12,7 @@ import { ai } from '@/ai/genkit';
 import { executeQuery } from '@/lib/data-service';
 import { z } from 'zod';
 import { suggestSqlQuery, type SuggestSqlQueryOutput } from '../flows/suggest-sql-query';
-import { searchCodebook } from '@/lib/vector-search';
+import { getCodebookAsString } from '@/lib/codebook';
 
 const toolOutputSchema = z.object({
   sqlQuery: z.string().optional(),
@@ -32,18 +32,14 @@ export const executeQueryTool = ai.defineTool(
   },
   async (input) => {
     let sqlQuery = '';
-    let codebookContext = 'No relevant context found in codebook.';
     
     try {
-      // Step 1: Retrieve context from the codebook vector store.
-      const searchResults = await searchCodebook(input.nlQuestion, 5);
-      if (searchResults.length > 0) {
-        codebookContext = searchResults.map((doc) => doc.content).join('\n\n---\n\n');
-      }
+      // Step 1: Retrieve the full codebook content.
+      const codebookContext = getCodebookAsString();
         
-      console.log(`[executeQueryTool] Retrieved context for: "${input.nlQuestion}"`);
+      console.log(`[executeQueryTool] Loaded full codebook context.`);
 
-      // Step 2: Generate SQL using the provided question and retrieved context
+      // Step 2: Generate SQL using the provided question and full codebook context
       let suggestion: SuggestSqlQueryOutput;
       try {
         suggestion = await suggestSqlQuery({
@@ -54,13 +50,13 @@ export const executeQueryTool = ai.defineTool(
       } catch (suggestionError: any) {
         const errorMsg = `❌ Failed to generate SQL query. Error: ${suggestionError.message || 'Unknown error'}`;
         console.error('[executeQueryTool]', errorMsg);
-        return { error: errorMsg, retrievedContext: codebookContext };
+        return { error: errorMsg };
       }
 
       if (!sqlQuery || sqlQuery.trim() === '') {
         const errorMsg = '❌ AI model returned an empty SQL query.';
         console.error('[executeQueryTool]', errorMsg);
-        return { error: errorMsg, sqlQuery, retrievedContext: codebookContext };
+        return { error: errorMsg, sqlQuery };
       }
       
       console.log(`[executeQueryTool] Generated SQL: ${sqlQuery}`);
@@ -70,25 +66,25 @@ export const executeQueryTool = ai.defineTool(
       
       if (result.error) {
         console.error('[executeQueryTool] Query execution failed:', result.error);
-        return { error: `❌ Query execution failed: ${result.error}`, sqlQuery, retrievedContext: codebookContext };
+        return { error: `❌ Query execution failed: ${result.error}`, sqlQuery };
       }
 
       if (result.data) {
          if (result.data.length > 0) {
             console.log(`[executeQueryTool] Query returned ${result.data.length} rows.`);
-            return { data: result.data, sqlQuery, retrievedContext: codebookContext };
+            return { data: result.data, sqlQuery };
          } else {
             console.warn('[executeQueryTool] SQL executed successfully, but no data was returned.');
-            return { data: [], sqlQuery, retrievedContext: codebookContext };
+            return { data: [], sqlQuery };
          }
       }
       
-      return { error: 'No data or error returned from executeQuery', sqlQuery, retrievedContext: codebookContext };
+      return { error: 'No data or error returned from executeQuery', sqlQuery };
 
     } catch (e: any) {
       const errorMsg = `💥 Unexpected error in executeQueryTool: ${e.message || 'Unknown error'}`;
       console.error('[executeQueryTool]', errorMsg);
-      return { error: errorMsg, sqlQuery, retrievedContext: codebookContext };
+      return { error: errorMsg, sqlQuery };
     }
   }
 );
