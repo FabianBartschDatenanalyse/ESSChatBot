@@ -22,7 +22,7 @@ type QueryResult = {
 
 export default function SqlToolPanel() {
     const { toast } = useToast();
-    const [sqlQuery, setSqlQuery] = useState("SELECT cntry, AVG(CAST(trstprl AS NUMERIC)) as avg_trust, COUNT(idno) as sample_size\nFROM \"ESS1\"\nGROUP BY cntry\nORDER BY avg_trust DESC");
+    const [sqlQuery, setSqlQuery] = useState("SELECT cntry, AVG(CAST(trstprl AS NUMERIC)) as avg_trust, COUNT(idno) as sample_size\nFROM \"ESS1\"\nWHERE trstprl NOT IN (77, 88, 99)\nGROUP BY cntry\nORDER BY avg_trust DESC");
     const [nlQuestion, setNlQuestion] = useState("");
     const [queryResult, setQueryResult] = useState<QueryResult>(null);
     const [isSuggesting, setIsSuggesting] = useState(false);
