@@ -64,7 +64,7 @@ Your final answer should be ONLY the natural language response. Do not include t
 
     if (llmResponse.toolCalls && llmResponse.toolCalls.length > 0) {
       const toolCall = llmResponse.toolCalls[0];
-      const toolOutput = toolCall.output as any;
+      const toolOutput = toolCall.output as any; // Cast to any to access dynamic properties
       sqlQuery = toolOutput?.sqlQuery;
       retrievedContext = toolOutput?.retrievedContext;
     }
@@ -72,6 +72,13 @@ Your final answer should be ONLY the natural language response. Do not include t
     if (textContent) {
       return { answer: textContent, sqlQuery, retrievedContext };
     }
+
+    // Handle cases where the model decides to respond without using a tool
+    if (llmResponse.candidates[0].message.content.length > 0) {
+      const answer = llmResponse.candidates[0].message.content.map(part => part.text).join('');
+      return { answer };
+    }
+
 
     throw new Error("The model did not return a valid response.");
   }
