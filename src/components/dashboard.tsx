@@ -1,12 +1,11 @@
 "use client";
 
-import { Database, MessageSquare, TestTube2 } from 'lucide-react';
+import { MessageSquare, TestTube2 } from 'lucide-react';
 
-import { SidebarProvider, Sidebar, SidebarInset, SidebarTrigger, SidebarContent, SidebarHeader, SidebarGroup, SidebarGroupLabel } from '@/components/ui/sidebar';
+import { SidebarProvider, Sidebar, SidebarInset, SidebarTrigger, SidebarContent, SidebarHeader } from '@/components/ui/sidebar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import Logo from '@/components/logo';
-import CodebookViewer from '@/components/codebook-viewer';
 import AskAiPanel from '@/components/ask-ai-panel';
 import SqlToolPanel from '@/components/sql-tool-panel';
 
@@ -26,13 +25,6 @@ export default function Dashboard() {
                 </div>
               </div>
             </SidebarHeader>
-            <SidebarGroup>
-              <SidebarGroupLabel className="flex items-center gap-2">
-                <Database className="h-4 w-4" />
-                Codebook
-              </SidebarGroupLabel>
-              <CodebookViewer />
-            </SidebarGroup>
         </SidebarContent>
       </Sidebar>
       <SidebarInset>

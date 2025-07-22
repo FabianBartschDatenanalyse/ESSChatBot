@@ -1,9 +1,7 @@
-
 "use client";
 
 import { useState } from 'react';
 import { suggestSqlQuery } from '@/ai/flows/suggest-sql-query';
-import { getCodebookAsString } from '@/lib/codebook';
 import { executeQuery } from '@/lib/data-service';
 
 
@@ -14,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { DataTable } from '@/components/data-table';
 import { Loader2, Wand2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { searchCodebook } from '@/lib/vector-search';
 
 type QueryResult = {
     columns: string[];
@@ -22,7 +21,7 @@ type QueryResult = {
 
 export default function SqlToolPanel() {
     const { toast } = useToast();
-    const [sqlQuery, setSqlQuery] = useState("SELECT cntry, AVG(trstprl) as avg_trust, COUNT(idno) as sample_size\nFROM ESS1\nGROUP BY cntry\nORDER BY avg_trust DESC;");
+    const [sqlQuery, setSqlQuery] = useState("SELECT cntry, AVG(CAST(trstprl AS NUMERIC)) as avg_trust, COUNT(idno) as sample_size\nFROM \"ESS1\"\nGROUP BY cntry\nORDER BY avg_trust DESC");
     const [nlQuestion, setNlQuestion] = useState("");
     const [queryResult, setQueryResult] = useState<QueryResult>(null);
     const [isSuggesting, setIsSuggesting] = useState(false);
@@ -39,8 +38,11 @@ export default function SqlToolPanel() {
         }
         setIsSuggesting(true);
         try {
-            const codebook = getCodebookAsString();
-            const result = await suggestSqlQuery({ question: nlQuestion, codebook });
+            const searchResults = await searchCodebook(nlQuestion, 5);
+            const codebookContext = searchResults
+              .map(result => `- ${result.content}`)
+              .join('\n');
+            const result = await suggestSqlQuery({ question: nlQuestion, codebook: codebookContext });
             setSqlQuery(result.sqlQuery);
         } catch (error) {
             toast({
@@ -65,15 +67,21 @@ export default function SqlToolPanel() {
                     description: result.error,
                 });
                 setQueryResult(null);
-            } else if (result.results && result.results.length > 0) {
-                const queryRes = result.results[0];
-                setQueryResult(queryRes);
+            } else if (result.data && result.data.length > 0) {
+                 const columns = Object.keys(result.data[0]);
+                 const rows = result.data;
+                 setQueryResult({ columns, rows });
+
                 toast({
                     title: 'Query Executed',
-                    description: `Returned ${queryRes.rows.length} rows.`,
+                    description: `Returned ${rows.length} rows.`,
                 })
             } else {
                  setQueryResult({columns: [], rows: []});
+                 toast({
+                    title: 'Query Executed',
+                    description: 'The query ran successfully but returned no rows.',
+                })
             }
         } catch (error: any) {
              toast({
@@ -119,7 +127,7 @@ export default function SqlToolPanel() {
                     value={sqlQuery}
                     onChange={(e) => setSqlQuery(e.target.value)}
                     className="h-32 font-mono text-sm"
-                    placeholder="SELECT * FROM ESS1;"
+                    placeholder="SELECT * FROM \"ESS1\";"
                 />
             </div>
             
@@ -128,6 +136,13 @@ export default function SqlToolPanel() {
                 Run Query
             </Button>
 
+            {isRunning && (
+              <div className="flex items-center space-x-2">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span className="text-muted-foreground">Running query...</span>
+              </div>
+            )}
+            
             {queryResult && (
                  <div className="space-y-4">
                     <h3 className="font-headline text-lg font-semibold">Query Results</h3>

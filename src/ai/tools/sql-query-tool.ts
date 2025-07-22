@@ -12,7 +12,6 @@ import { ai } from '@/ai/genkit';
 import { executeQuery } from '@/lib/data-service';
 import { z } from 'zod';
 import { suggestSqlQuery, type SuggestSqlQueryOutput } from '../flows/suggest-sql-query';
-import { searchCodebook } from '@/lib/vector-search';
 
 const toolOutputSchema = z.object({
   sqlQuery: z.string().optional(),
@@ -23,9 +22,10 @@ const toolOutputSchema = z.object({
 export const executeQueryTool = ai.defineTool(
   {
     name: 'executeQueryTool',
-    description: 'Use this tool to query the database to answer user questions about the data. Takes a natural language query as input.',
+    description: 'Use this tool to query the database to answer user questions about the data. Takes a natural language question and optional codebook context as input.',
     inputSchema: z.object({
       nlQuestion: z.string().describe('A natural language question that can be answered with a SQL query.'),
+      codebookContext: z.string().describe('Relevant context retrieved from the codebook to help generate an accurate query. This should come from the `codebookRetrievalTool`.')
     }),
     outputSchema: toolOutputSchema,
   },
@@ -33,18 +33,12 @@ export const executeQueryTool = ai.defineTool(
     let sqlQuery = '';
 
     try {
-      // Step 1: Get relevant codebook context for the SQL generation
-      const searchResults = await searchCodebook(input.nlQuestion, 5); // Get top 5 results for SQL generation
-      const codebookContext = searchResults
-        .map(result => `- ${result.content}`)
-        .join('\n');
-
-      // Step 2: Generate SQL
+      // Step 1: Generate SQL using the provided question and context
       let suggestion: SuggestSqlQueryOutput;
       try {
         suggestion = await suggestSqlQuery({
           question: input.nlQuestion,
-          codebook: codebookContext,
+          codebook: input.codebookContext,
         });
         sqlQuery = suggestion.sqlQuery;
       } catch (suggestionError: any) {
@@ -58,8 +52,10 @@ export const executeQueryTool = ai.defineTool(
         console.error('[executeQueryTool]', errorMsg);
         return { error: errorMsg, sqlQuery };
       }
+      
+      console.log(`[executeQueryTool] Generated SQL: ${sqlQuery}`);
 
-      // Step 3: Execute SQL
+      // Step 2: Execute SQL
       const result = await executeQuery(sqlQuery);
       
       if (result.error) {
@@ -69,9 +65,10 @@ export const executeQueryTool = ai.defineTool(
 
       if (result.data) {
          if (result.data.length > 0) {
+            console.log(`[executeQueryTool] Query returned ${result.data.length} rows.`);
             return { data: result.data, sqlQuery };
          } else {
-            console.warn('[executeQueryTool] SQL executed successfully, but no usable data returned.');
+            console.warn('[executeQueryTool] SQL executed successfully, but no data was returned.');
             return { data: [], sqlQuery };
          }
       }
