@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { MessageSquare, TestTube2, History } from 'lucide-react';
+import { MessageSquare, TestTube2, History, PlusCircle } from 'lucide-react';
 
 import { SidebarProvider, Sidebar, SidebarInset, SidebarTrigger, SidebarContent, SidebarHeader, SidebarGroup, SidebarGroupLabel, SidebarSeparator } from '@/components/ui/sidebar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -10,12 +10,23 @@ import Logo from '@/components/logo';
 import AskAiPanel from '@/components/ask-ai-panel';
 import SqlToolPanel from '@/components/sql-tool-panel';
 import HistoryPanel, { type HistoryItem } from '@/components/history-panel';
+import { Button } from './ui/button';
+
+type Message = {
+  role: 'user' | 'assistant';
+  content: string;
+};
 
 export default function Dashboard() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
 
   const addHistoryItem = (item: HistoryItem) => {
     setHistory(prev => [item, ...prev]);
+  };
+
+  const clearConversation = () => {
+    setMessages([]);
   };
 
   return (
@@ -61,12 +72,23 @@ export default function Dashboard() {
             </TabsList>
             <TabsContent value="ai-assistant" className="mt-4">
               <Card>
-                <CardHeader>
-                  <CardTitle className="font-headline">Ask the AI</CardTitle>
-                  <CardDescription>Get answers about the ESS dataset from our intelligent assistant.</CardDescription>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="font-headline">Ask the AI</CardTitle>
+                    <CardDescription>Get answers about the ESS dataset from our intelligent assistant.</CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={clearConversation}>
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    New Conversation
+                  </Button>
                 </CardHeader>
                 <CardContent>
-                  <AskAiPanel onNewHistoryItem={addHistoryItem} />
+                  <AskAiPanel 
+                    onNewHistoryItem={addHistoryItem}
+                    clearConversation={clearConversation}
+                    messages={messages}
+                    setMessages={setMessages}
+                  />
                 </CardContent>
               </Card>
             </TabsContent>

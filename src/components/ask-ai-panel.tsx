@@ -26,10 +26,12 @@ type Message = {
 
 interface AskAiPanelProps {
   onNewHistoryItem: (item: HistoryItem) => void;
+  clearConversation: () => void;
+  messages: Message[];
+  setMessages: (messages: Message[]) => void;
 }
 
-export default function AskAiPanel({ onNewHistoryItem }: AskAiPanelProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+export default function AskAiPanel({ onNewHistoryItem, clearConversation, messages, setMessages }: AskAiPanelProps) {
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -41,14 +43,14 @@ export default function AskAiPanel({ onNewHistoryItem }: AskAiPanelProps) {
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     const userMessage: Message = { role: 'user', content: values.question };
-    setMessages((prev) => [...prev, userMessage]);
+    setMessages([...messages, userMessage]);
     setIsLoading(true);
     form.reset();
 
     try {
       const result = await mainAssistant({ question: values.question });
       const assistantMessage: Message = { role: 'assistant', content: result.answer };
-      setMessages((prev) => [...prev, assistantMessage]);
+      setMessages([...messages, userMessage, assistantMessage]);
       
       onNewHistoryItem({
         question: values.question,
@@ -60,7 +62,7 @@ export default function AskAiPanel({ onNewHistoryItem }: AskAiPanelProps) {
     } catch (error) {
       console.error(error);
       const errorMessage: Message = { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' };
-      setMessages((prev) => [...prev, errorMessage]);
+      setMessages([...messages, userMessage, errorMessage]);
     } finally {
       setIsLoading(false);
     }
