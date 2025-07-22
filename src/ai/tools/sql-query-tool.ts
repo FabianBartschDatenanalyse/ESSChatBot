@@ -41,6 +41,7 @@ export const executeQueryTool = ai.defineTool(
   async (input) => {
     let sqlQuery = '';
     let retrievedContext = '';
+    console.log('[executeQueryTool] Received input:', JSON.stringify(input, null, 2));
     
     try {
       // Step 1: Retrieve relevant context from the vector database.
@@ -49,7 +50,7 @@ export const executeQueryTool = ai.defineTool(
           .map(result => `- ${result.content}`)
           .join('\n');
         
-      console.log(`[executeQueryTool] Retrieved context from vector DB.`);
+      console.log(`[executeQueryTool] Retrieved context from vector DB:`, retrievedContext);
 
       // Step 2: Generate SQL using the provided question and retrieved context
       let suggestion: SuggestSqlQueryOutput;

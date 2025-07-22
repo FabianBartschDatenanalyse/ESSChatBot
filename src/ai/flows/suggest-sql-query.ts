@@ -49,7 +49,7 @@ const prompt = ai.definePrompt({
   5.  **Filtering Missing Values:** When aggregating data (e.g., with AVG, COUNT), you MUST exclude rows with missing or invalid data. The codebook specifies missing values with codes like 77, 88, and 99. These are stored as TEXT, so you MUST compare them as strings. Always include a \`WHERE\` clause to filter these out (e.g., \`WHERE trstprl NOT IN ('77', '88', '99')\`).
   6.  **Empty Query Fallback:** If you cannot determine a valid SQL query from the request, you MUST return an empty string for the 'sqlQuery' field.
 
-  **Conversation History:**
+  **Conversation History (for context on follow-up questions):**
   {{#if history}}
     {{#each history}}
       **{{role}}**: {{content}}
@@ -58,7 +58,7 @@ const prompt = ai.definePrompt({
     No history.
   {{/if}}
 
-  **User's Current Question:**
+  **User's Current Question (this is the question you need to turn into SQL):**
   {{{question}}}
 
   **Relevant Codebook Context:**
@@ -66,7 +66,7 @@ const prompt = ai.definePrompt({
   {{{codebook}}}
   \`\`\`
 
-  Based on the rules, the question, and the codebook context, generate the SQL query.`,
+  Based on all the above, generate the SQL query.`,
 });
 
 
@@ -77,7 +77,9 @@ const suggestSqlQueryFlow = ai.defineFlow(
     outputSchema: SuggestSqlQueryOutputSchema,
   },
   async input => {
+    console.log('[suggestSqlQueryFlow] Received input:', JSON.stringify(input, null, 2));
     const {output} = await prompt(input);
+    console.log('[suggestSqlQueryFlow] LLM output:', JSON.stringify(output, null, 2));
     return output!;
   }
 );
