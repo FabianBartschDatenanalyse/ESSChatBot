@@ -22,6 +22,8 @@ export type MainAssistantInput = z.infer<typeof MainAssistantInputSchema>;
 
 const MainAssistantOutputSchema = z.object({
   answer: z.string().describe('The final answer to be displayed to the user.'),
+  sqlQuery: z.string().optional().describe('The SQL query that was executed.'),
+  retrievedContext: z.string().optional().describe('The context retrieved from the vector database.'),
 });
 export type MainAssistantOutput = z.infer<typeof MainAssistantOutputSchema>;
 
@@ -48,10 +50,8 @@ Here is your workflow:
 3.  When you get a result from the tool, analyze it:
     - If the tool returns data, explain the data to the user in a clear, easy-to-understand way.
     - If the tool returns an error, you MUST display the error message to the user.
-    - If the tool returns retrievedContext, you MUST display the context that was used to generate the query under a heading "Retrieved Context".
-    - In all cases where the tool was used, you MUST also present the final SQL query that was used in a markdown code block.
-
-Always strive to provide a comprehensive and easy-to-understand response.`;
+    
+Your final answer should be ONLY the natural language response. Do not include the SQL query or context in your answer.`;
 
     const llmResponse = await ai.generate({
       model: 'openai/gpt-4o',
@@ -60,9 +60,17 @@ Always strive to provide a comprehensive and easy-to-understand response.`;
     });
     
     const textContent = llmResponse.text;
+    const toolCall = llmResponse.toolCalls[0];
+    let sqlQuery, retrievedContext;
+
+    if (toolCall) {
+      const toolOutput = toolCall.output as any;
+      sqlQuery = toolOutput?.sqlQuery;
+      retrievedContext = toolOutput?.retrievedContext;
+    }
     
     if (textContent) {
-      return { answer: textContent };
+      return { answer: textContent, sqlQuery, retrievedContext };
     }
 
     throw new Error("The model did not return a valid response.");

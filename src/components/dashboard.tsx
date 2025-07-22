@@ -1,21 +1,27 @@
 "use client";
 
-import { MessageSquare, TestTube2 } from 'lucide-react';
+import { useState } from 'react';
+import { MessageSquare, TestTube2, History } from 'lucide-react';
 
-import { SidebarProvider, Sidebar, SidebarInset, SidebarTrigger, SidebarContent, SidebarHeader } from '@/components/ui/sidebar';
+import { SidebarProvider, Sidebar, SidebarInset, SidebarTrigger, SidebarContent, SidebarHeader, SidebarGroup, SidebarGroupLabel, SidebarSeparator } from '@/components/ui/sidebar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import Logo from '@/components/logo';
 import AskAiPanel from '@/components/ask-ai-panel';
 import SqlToolPanel from '@/components/sql-tool-panel';
-
+import HistoryPanel, { type HistoryItem } from '@/components/history-panel';
 
 export default function Dashboard() {
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+
+  const addHistoryItem = (item: HistoryItem) => {
+    setHistory(prev => [item, ...prev]);
+  };
 
   return (
     <SidebarProvider>
       <Sidebar>
-        <SidebarContent className="p-0">
+        <SidebarContent className="p-0 flex flex-col">
             <SidebarHeader className='p-4 border-b border-sidebar-border'>
               <div className="flex items-center gap-3">
                 <Logo className="h-10 w-10 text-primary" />
@@ -25,6 +31,16 @@ export default function Dashboard() {
                 </div>
               </div>
             </SidebarHeader>
+            <SidebarSeparator />
+             <SidebarGroup className='p-0'>
+                <SidebarGroupLabel className='px-4 pt-2'>
+                    <History className='mr-2' />
+                    Query History
+                </SidebarGroupLabel>
+                <div className="p-4">
+                  <HistoryPanel history={history} />
+                </div>
+            </SidebarGroup>
         </SidebarContent>
       </Sidebar>
       <SidebarInset>
@@ -50,7 +66,7 @@ export default function Dashboard() {
                   <CardDescription>Get answers about the ESS dataset from our intelligent assistant.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <AskAiPanel />
+                  <AskAiPanel onNewHistoryItem={addHistoryItem} />
                 </CardContent>
               </Card>
             </TabsContent>

@@ -13,6 +13,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Loader2, Send } from 'lucide-react';
 import Logo from './logo';
+import type { HistoryItem } from './history-panel';
 
 const formSchema = z.object({
   question: z.string().min(1, 'Question cannot be empty.'),
@@ -23,7 +24,11 @@ type Message = {
   content: string;
 };
 
-export default function AskAiPanel() {
+interface AskAiPanelProps {
+  onNewHistoryItem: (item: HistoryItem) => void;
+}
+
+export default function AskAiPanel({ onNewHistoryItem }: AskAiPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -44,6 +49,14 @@ export default function AskAiPanel() {
       const result = await mainAssistant({ question: values.question });
       const assistantMessage: Message = { role: 'assistant', content: result.answer };
       setMessages((prev) => [...prev, assistantMessage]);
+      
+      onNewHistoryItem({
+        question: values.question,
+        answer: result.answer,
+        sqlQuery: result.sqlQuery,
+        retrievedContext: result.retrievedContext,
+      });
+
     } catch (error) {
       console.error(error);
       const errorMessage: Message = { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' };
