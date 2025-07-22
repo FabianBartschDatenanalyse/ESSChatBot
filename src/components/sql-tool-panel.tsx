@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from 'react';
@@ -96,59 +97,61 @@ export default function SqlToolPanel() {
     };
 
     return (
-        <div className="space-y-6">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                    <Label htmlFor="nl-question">Ask a question to generate a query</Label>
-                    <div className="flex gap-2">
-                        <Input 
-                            id="nl-question" 
-                            placeholder="e.g., What is the average trust in parliament per country?" 
-                            value={nlQuestion}
-                            onChange={(e) => setNlQuestion(e.target.value)}
-                            disabled={isSuggesting}
-                        />
-                        <Button onClick={handleSuggestQuery} disabled={isSuggesting}>
-                            {isSuggesting ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                                <Wand2 className="h-4 w-4" />
-                            )}
-                            <span className="sr-only">Suggest Query</span>
-                        </Button>
+        <>
+            <div className="space-y-6">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                        <Label htmlFor="nl-question">Ask a question to generate a query</Label>
+                        <div className="flex gap-2">
+                            <Input 
+                                id="nl-question" 
+                                placeholder="e.g., What is the average trust in parliament per country?" 
+                                value={nlQuestion}
+                                onChange={(e) => setNlQuestion(e.target.value)}
+                                disabled={isSuggesting}
+                            />
+                            <Button onClick={handleSuggestQuery} disabled={isSuggesting}>
+                                {isSuggesting ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Wand2 className="h-4 w-4" />
+                                )}
+                                <span className="sr-only">Suggest Query</span>
+                            </Button>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div className="space-y-2">
-                <Label htmlFor="sql-query">SQL Query</Label>
-                <Textarea 
-                    id="sql-query"
-                    value={sqlQuery}
-                    onChange={(e) => setSqlQuery(e.target.value)}
-                    className="h-32 font-mono text-sm"
-                    placeholder="SELECT * FROM \"ESS1\";"
-                />
-            </div>
-            
-            <Button onClick={handleRunQuery} disabled={isRunning}>
-                {isRunning && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Run Query
-            </Button>
-
-            {isRunning && (
-              <div className="flex items-center space-x-2">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                <span className="text-muted-foreground">Running query...</span>
-              </div>
-            )}
-            
-            {queryResult && (
-                 <div className="space-y-4">
-                    <h3 className="font-headline text-lg font-semibold">Query Results</h3>
-                    <DataTable columns={queryResult.columns} data={queryResult.rows} />
+                <div className="space-y-2">
+                    <Label htmlFor="sql-query">SQL Query</Label>
+                    <Textarea 
+                        id="sql-query"
+                        value={sqlQuery}
+                        onChange={(e) => setSqlQuery(e.target.value)}
+                        className="h-32 font-mono text-sm"
+                        placeholder="SELECT * FROM &quot;ESS1&quot;;"
+                    />
                 </div>
-            )}
-        </div>
+                
+                <Button onClick={handleRunQuery} disabled={isRunning}>
+                    {isRunning && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Run Query
+                </Button>
+
+                {isRunning && (
+                <div className="flex items-center space-x-2">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span className="text-muted-foreground">Running query...</span>
+                </div>
+                )}
+                
+                {queryResult && (
+                    <div className="space-y-4">
+                        <h3 className="font-headline text-lg font-semibold">Query Results</h3>
+                        <DataTable columns={queryResult.columns} data={queryResult.rows} />
+                    </div>
+                )}
+            </div>
+        </>
     );
 }

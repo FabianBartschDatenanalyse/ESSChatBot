@@ -14,10 +14,12 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !OPENAI_API_KEY) {
-  throw new Error(
-    'Missing required environment variables: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, OPENAI_API_KEY'
-  );
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error('Missing Supabase environment variables in .env file');
+}
+
+if (!OPENAI_API_KEY) {
+    throw new Error('Missing OPENAI_API_KEY environment variable in .env file');
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
