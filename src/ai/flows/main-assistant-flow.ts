@@ -16,7 +16,7 @@ import {Message, z} from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
 
 const MessageSchema = z.object({
-    role: z.enum(['user', 'assistant']),
+    role: z.enum(['user', 'assistant', 'tool']),
     content: z.string(),
 });
 
@@ -51,8 +51,9 @@ You have access to one tool: \`executeQueryTool\`.
 
 Here is your workflow:
 1.  Analyze the user's question in the context of the conversation history.
-2.  If the question requires data from the database (including follow-up questions like "what is that in percentage?"), you MUST use the \`executeQueryTool\`. Pass a natural language question to the 'nlQuestion' parameter. This question should be self-contained, using the conversation history to resolve any ambiguities. For example, if the previous answer was a count and the user now asks for "the percentage", you should formulate a new question like "what is the percentage of...".
-3.  When you get a result from the tool, analyze it:
+2.  If the question requires data from the database, you MUST use the \`executeQueryTool\`. Pass a natural language question to the 'nlQuestion' parameter.
+3.  **IMPORTANT for follow-up questions**: If the user's question is a follow-up (e.g., "what is that in percentage?", "and for Germany?"), you MUST formulate a new, self-contained natural language question for the tool that incorporates the context from the history. For example, if the previous question was "how many people per country think politics is complicated" and the new question is "and in percentage?", you must call the tool with a new question like "What is the percentage of people per country who think politics is complicated".
+4.  When you get a result from the tool, analyze it:
     - If the tool returns data, explain the data to the user in a clear, easy-to-understand way.
     - If the tool returns an error, you MUST display the error message to the user.
     
@@ -68,7 +69,7 @@ Your final answer should be ONLY the natural language response. Do not include t
     
     const textContent = llmResponse.text;
     let sqlQuery, retrievedContext;
-
+    
     if (llmResponse.toolCalls && llmResponse.toolCalls.length > 0) {
       const toolCall = llmResponse.toolCalls[0];
       const toolOutput = toolCall.output as any; // Cast to any to access dynamic properties

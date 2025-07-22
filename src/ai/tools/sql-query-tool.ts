@@ -10,10 +10,19 @@
 
 import { ai } from '@/ai/genkit';
 import { executeQuery } from '@/lib/data-service';
-import { z } from 'zod';
+import { z, Message } from 'genkit';
 import { suggestSqlQuery, type SuggestSqlQueryOutput } from '../flows/suggest-sql-query';
 import { searchCodebook } from '@/lib/vector-search';
 
+const MessageSchema = z.object({
+  role: z.enum(['user', 'assistant', 'tool']),
+  content: z.string(),
+});
+
+const toolInputSchema = z.object({
+    nlQuestion: z.string().describe('A natural language question that can be answered with a SQL query.'),
+    history: z.array(MessageSchema).optional().describe("The conversation history."),
+});
 
 const toolOutputSchema = z.object({
   sqlQuery: z.string().optional(),
@@ -25,10 +34,8 @@ const toolOutputSchema = z.object({
 export const executeQueryTool = ai.defineTool(
   {
     name: 'executeQueryTool',
-    description: 'Use this tool to query the database to answer user questions about the data. Takes a natural language question as input.',
-    inputSchema: z.object({
-      nlQuestion: z.string().describe('A natural language question that can be answered with a SQL query.'),
-    }),
+    description: 'Use this tool to query the database to answer user questions about the data. Takes a natural language question and optional conversation history as input.',
+    inputSchema: toolInputSchema,
     outputSchema: toolOutputSchema,
   },
   async (input) => {
@@ -50,6 +57,7 @@ export const executeQueryTool = ai.defineTool(
         suggestion = await suggestSqlQuery({
           question: input.nlQuestion,
           codebook: retrievedContext,
+          history: input.history,
         });
         sqlQuery = suggestion.sqlQuery;
       } catch (suggestionError: any) {
