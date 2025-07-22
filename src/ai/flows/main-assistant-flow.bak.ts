@@ -2,9 +2,9 @@
 /**
  * @fileOverview The main AI assistant agent.
  *
- * This file defines the primary agent for the application. It uses a RAG approach by first using the
- * codebook retrieval tool to find relevant context before deciding whether to use other
- * tools (like querying the database) or answer from its general knowledge.
+ * This file defines the primary agent for the application. The agent is responsible for
+ * orchestrating responses to user queries. It can decide whether to use tools (like querying
+ * the database) or answer from its general knowledge based on the user's question.
  *
  * - mainAssistant - The primary function that powers the AI assistant.
  * - MainAssistantInput - The input type for the mainAssistant function.
@@ -14,6 +14,7 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
+import { codebookRetrievalTool } from '../tools/codebook-retrieval-tool';
 
 const MainAssistantInputSchema = z.object({
   question: z.string().describe("The user's question."),
@@ -38,25 +39,25 @@ const mainAssistantFlow = ai.defineFlow(
   async (input) => {
     
     const initialPrompt = `You are an expert data analyst and assistant for the European Social Survey (ESS).
-Your goal is to answer the user's question as accurately as possible by querying the ESS database.
+Your goal is to answer the user's question as accurately and helpfully as possible by querying the ESS database.
 
-You have access to one tool: \`executeQueryTool\`.
+You have access to two tools: \`codebookRetrievalTool\` and \`executeQueryTool\`.
 
 Here is your workflow:
 1.  Analyze the user's question: "${input.question}"
-2.  You MUST use the \`executeQueryTool\` to answer the question. Pass the user's question directly to the 'nlQuestion' parameter of the tool.
-3.  When you get a result from the tool, analyze it:
+2.  First, ALWAYS use the \`codebookRetrievalTool\` to find the most relevant context from the database codebook. Pass the user's question to the 'query' parameter.
+3.  Next, use the context from the retrieval tool to decide your next step. If the user's question can be answered by querying the database, use the \`executeQueryTool\`. Pass the original user question to the 'nlQuestion' parameter.
+4.  When you get a result from a tool, analyze it:
     - If the tool returns data, explain the data to the user in a clear, easy-to-understand way.
-    - If the tool returns an error, you MUST display the error message to the user.
-    - If the tool returns retrievedContext, you MUST display the context that was used to generate the query under a heading "Retrieved Context".
-    - In all cases where the tool was used, you MUST also present the final SQL query that was used in a markdown code block.
+    - If the tool returns an error, inform the user clearly.
+    - In all cases where a tool was used, you MUST also present the final SQL query that was used in a markdown code block.
 
 Always strive to provide a comprehensive and easy-to-understand response.`;
 
     const llmResponse = await ai.generate({
       model: 'openai/gpt-4o',
       prompt: initialPrompt,
-      tools: [executeQueryTool],
+      tools: [executeQueryTool, codebookRetrievalTool],
     });
     
     const textContent = llmResponse.text;

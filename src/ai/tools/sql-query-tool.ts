@@ -16,6 +16,7 @@ import { searchCodebook } from '@/lib/vector-search';
 
 const toolOutputSchema = z.object({
   sqlQuery: z.string().optional(),
+  retrievedContext: z.string().optional(),
   data: z.any().optional(),
   error: z.string().optional(),
 });
@@ -31,13 +32,14 @@ export const executeQueryTool = ai.defineTool(
   },
   async (input) => {
     let sqlQuery = '';
-
+    let codebookContext = 'No relevant context found in codebook.';
+    
     try {
       // Step 1: Retrieve context from the codebook vector store.
       const searchResults = await searchCodebook(input.nlQuestion, 5);
-      const codebookContext = searchResults.length > 0
-        ? searchResults.map((doc) => doc.content).join('\n\n---\n\n')
-        : 'No relevant context found in codebook.';
+      if (searchResults.length > 0) {
+        codebookContext = searchResults.map((doc) => doc.content).join('\n\n---\n\n');
+      }
         
       console.log(`[executeQueryTool] Retrieved context for: "${input.nlQuestion}"`);
 
@@ -52,13 +54,13 @@ export const executeQueryTool = ai.defineTool(
       } catch (suggestionError: any) {
         const errorMsg = `❌ Failed to generate SQL query. Error: ${suggestionError.message || 'Unknown error'}`;
         console.error('[executeQueryTool]', errorMsg);
-        return { error: errorMsg };
+        return { error: errorMsg, retrievedContext: codebookContext };
       }
 
       if (!sqlQuery || sqlQuery.trim() === '') {
         const errorMsg = '❌ AI model returned an empty SQL query.';
         console.error('[executeQueryTool]', errorMsg);
-        return { error: errorMsg, sqlQuery };
+        return { error: errorMsg, sqlQuery, retrievedContext: codebookContext };
       }
       
       console.log(`[executeQueryTool] Generated SQL: ${sqlQuery}`);
@@ -68,25 +70,25 @@ export const executeQueryTool = ai.defineTool(
       
       if (result.error) {
         console.error('[executeQueryTool] Query execution failed:', result.error);
-        return { error: `❌ Query execution failed: ${result.error}`, sqlQuery };
+        return { error: `❌ Query execution failed: ${result.error}`, sqlQuery, retrievedContext: codebookContext };
       }
 
       if (result.data) {
          if (result.data.length > 0) {
             console.log(`[executeQueryTool] Query returned ${result.data.length} rows.`);
-            return { data: result.data, sqlQuery };
+            return { data: result.data, sqlQuery, retrievedContext: codebookContext };
          } else {
             console.warn('[executeQueryTool] SQL executed successfully, but no data was returned.');
-            return { data: [], sqlQuery };
+            return { data: [], sqlQuery, retrievedContext: codebookContext };
          }
       }
       
-      return { error: 'No data or error returned from executeQuery', sqlQuery };
+      return { error: 'No data or error returned from executeQuery', sqlQuery, retrievedContext: codebookContext };
 
     } catch (e: any) {
       const errorMsg = `💥 Unexpected error in executeQueryTool: ${e.message || 'Unknown error'}`;
       console.error('[executeQueryTool]', errorMsg);
-      return { error: errorMsg, sqlQuery };
+      return { error: errorMsg, sqlQuery, retrievedContext: codebookContext };
     }
   }
 );
