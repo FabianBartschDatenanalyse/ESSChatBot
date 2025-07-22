@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MessageSquare, TestTube2, History, PlusCircle } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
 
 import { SidebarProvider, Sidebar, SidebarInset, SidebarTrigger, SidebarContent, SidebarHeader, SidebarGroup, SidebarGroupLabel, SidebarSeparator } from '@/components/ui/sidebar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -9,31 +10,63 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import Logo from '@/components/logo';
 import AskAiPanel from '@/components/ask-ai-panel';
 import SqlToolPanel from '@/components/sql-tool-panel';
-import HistoryPanel, { type HistoryItem } from '@/components/history-panel';
+import HistoryPanel from '@/components/history-panel';
 import { Button } from './ui/button';
 
-type Message = {
+export type Message = {
   role: 'user' | 'assistant';
   content: string;
+  sqlQuery?: string;
+  retrievedContext?: string;
+};
+
+export type Conversation = {
+  id: string;
+  title: string;
+  messages: Message[];
 };
 
 export default function Dashboard() {
-  const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 
-  const addHistoryItem = (item: HistoryItem) => {
-    setHistory(prev => [item, ...prev]);
+  // Effect to create a new conversation if none exist
+  useEffect(() => {
+    if (conversations.length === 0) {
+      handleNewConversation();
+    }
+  }, [conversations.length]);
+  
+  const handleNewConversation = () => {
+    const newId = uuidv4();
+    const newConversation: Conversation = {
+      id: newId,
+      title: 'New Conversation',
+      messages: [],
+    };
+    setConversations(prev => [...prev, newConversation]);
+    setActiveConversationId(newId);
   };
 
-  const clearConversation = () => {
-    setMessages([]);
+  const updateConversation = (conversationId: string, updatedMessages: Message[]) => {
+    setConversations(prev =>
+      prev.map(conv => {
+        if (conv.id === conversationId) {
+          const newTitle = updatedMessages.length > 0 ? updatedMessages[0].content : 'New Conversation';
+          return { ...conv, messages: updatedMessages, title: newTitle };
+        }
+        return conv;
+      })
+    );
   };
+  
+  const activeConversation = conversations.find(c => c.id === activeConversationId);
 
   return (
     <SidebarProvider>
       <Sidebar>
         <SidebarContent className="p-0 flex flex-col">
-            <SidebarHeader className='p-4 border-b border-sidebar-border'>
+            <SidebarHeader className='p-4 border-b border-sidebar-border flex justify-between items-center'>
               <div className="flex items-center gap-3">
                 <Logo className="h-10 w-10 text-primary" />
                 <div className="flex flex-col">
@@ -41,15 +74,23 @@ export default function Dashboard() {
                   <p className="text-xs text-muted-foreground -mt-1">AI Data Explorer</p>
                 </div>
               </div>
+               <Button variant="outline" size="sm" onClick={handleNewConversation}>
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  New
+                </Button>
             </SidebarHeader>
             <SidebarSeparator />
              <SidebarGroup className='p-0'>
                 <SidebarGroupLabel className='px-4 pt-2'>
                     <History className='mr-2' />
-                    Query History
+                    History
                 </SidebarGroupLabel>
                 <div className="p-4">
-                  <HistoryPanel history={history} />
+                  <HistoryPanel 
+                    conversations={conversations} 
+                    activeConversationId={activeConversationId}
+                    setActiveConversationId={setActiveConversationId}
+                  />
                 </div>
             </SidebarGroup>
         </SidebarContent>
@@ -72,23 +113,24 @@ export default function Dashboard() {
             </TabsList>
             <TabsContent value="ai-assistant" className="mt-4">
               <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
+                <CardHeader>
                   <div>
                     <CardTitle className="font-headline">Ask the AI</CardTitle>
                     <CardDescription>Get answers about the ESS dataset from our intelligent assistant.</CardDescription>
                   </div>
-                  <Button variant="outline" size="sm" onClick={clearConversation}>
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    New Conversation
-                  </Button>
                 </CardHeader>
                 <CardContent>
-                  <AskAiPanel 
-                    onNewHistoryItem={addHistoryItem}
-                    clearConversation={clearConversation}
-                    messages={messages}
-                    setMessages={setMessages}
-                  />
+                  {activeConversation ? (
+                    <AskAiPanel
+                      key={activeConversation.id}
+                      conversation={activeConversation}
+                      onMessagesUpdate={updateConversation}
+                    />
+                  ) : (
+                     <div className="flex h-[65vh] flex-col items-center justify-center">
+                        <p className="text-muted-foreground">Select a conversation or start a new one.</p>
+                     </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>

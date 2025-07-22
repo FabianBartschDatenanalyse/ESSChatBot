@@ -1,28 +1,18 @@
-
 "use client";
 
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { ScrollArea } from "./ui/scroll-area";
-import { Code2, Database } from "lucide-react";
-
-export interface HistoryItem {
-  question: string;
-  answer: string;
-  sqlQuery?: string;
-  retrievedContext?: string;
-}
+import type { Conversation } from './dashboard';
+import { Button } from "./ui/button";
+import { cn } from "@/lib/utils";
 
 interface HistoryPanelProps {
-  history: HistoryItem[];
+  conversations: Conversation[];
+  activeConversationId: string | null;
+  setActiveConversationId: (id: string) => void;
 }
 
-export default function HistoryPanel({ history }: HistoryPanelProps) {
-  if (history.length === 0) {
+export default function HistoryPanel({ conversations, activeConversationId, setActiveConversationId }: HistoryPanelProps) {
+  if (conversations.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-muted-foreground">No history yet.</p>
@@ -31,41 +21,22 @@ export default function HistoryPanel({ history }: HistoryPanelProps) {
   }
 
   return (
-    <ScrollArea className="h-[60vh] w-full">
-        <Accordion type="single" collapsible className="w-full">
-        {history.map((item, index) => (
-            <AccordionItem key={index} value={`item-${index}`}>
-            <AccordionTrigger className="text-left hover:no-underline">
-                <p className="truncate font-medium text-sm">{item.question}</p>
-            </AccordionTrigger>
-            <AccordionContent className="space-y-4">
-                <p className="text-sm text-foreground/80">{item.answer}</p>
-                {item.sqlQuery && (
-                <div className="space-y-2">
-                    <h4 className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-                        <Code2 className="h-4 w-4" />
-                        SQL Query
-                    </h4>
-                    <pre className="p-2 bg-muted rounded-md text-xs overflow-x-auto">
-                        <code className="font-mono">{item.sqlQuery}</code>
-                    </pre>
-                </div>
-                )}
-                {item.retrievedContext && (
-                 <div className="space-y-2">
-                    <h4 className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-                        <Database className="h-4 w-4" />
-                        Retrieved Context
-                    </h4>
-                    <pre className="p-2 bg-muted rounded-md text-xs overflow-x-auto whitespace-pre-wrap">
-                        <code className="font-sans">{item.retrievedContext}</code>
-                    </pre>
-                </div>
-                )}
-            </AccordionContent>
-            </AccordionItem>
+    <ScrollArea className="h-[calc(100vh-150px)] w-full">
+      <div className="flex flex-col gap-2 pr-2">
+        {conversations.map((conv) => (
+          <Button
+            key={conv.id}
+            variant="ghost"
+            className={cn(
+              "w-full justify-start text-left h-auto whitespace-normal",
+              conv.id === activeConversationId && "bg-sidebar-accent text-sidebar-accent-foreground"
+            )}
+            onClick={() => setActiveConversationId(conv.id)}
+          >
+           <p className="truncate text-sm font-medium">{conv.title}</p>
+          </Button>
         ))}
-        </Accordion>
+      </div>
     </ScrollArea>
   );
 }
