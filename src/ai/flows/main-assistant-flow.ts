@@ -60,10 +60,10 @@ Your final answer should be ONLY the natural language response. Do not include t
     });
     
     const textContent = llmResponse.text;
-    const toolCall = llmResponse.toolCalls[0];
     let sqlQuery, retrievedContext;
 
-    if (toolCall) {
+    if (llmResponse.toolCalls && llmResponse.toolCalls.length > 0) {
+      const toolCall = llmResponse.toolCalls[0];
       const toolOutput = toolCall.output as any;
       sqlQuery = toolOutput?.sqlQuery;
       retrievedContext = toolOutput?.retrievedContext;
