@@ -49,7 +49,10 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
     form.reset();
 
     try {
-      const result = await mainAssistant({ question: values.question });
+      // Pass the existing messages as history
+      const history = messages.map(({ role, content }) => ({ role, content }));
+      const result = await mainAssistant({ question: values.question, history });
+      
       const assistantMessage: Message = {
         role: 'assistant',
         content: result.answer,

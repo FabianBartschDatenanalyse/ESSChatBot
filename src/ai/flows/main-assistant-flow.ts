@@ -15,8 +15,14 @@ import {ai} from '@/ai/genkit';
 import {z} from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
 
+const MessageSchema = z.object({
+    role: z.enum(['user', 'assistant']),
+    content: z.string(),
+});
+
 const MainAssistantInputSchema = z.object({
-  question: z.string().describe("The user's question."),
+  question: z.string().describe("The user's current question."),
+  history: z.array(MessageSchema).optional().describe("The conversation history."),
 });
 export type MainAssistantInput = z.infer<typeof MainAssistantInputSchema>;
 
@@ -41,12 +47,16 @@ const mainAssistantFlow = ai.defineFlow(
     
     const initialPrompt = `You are an expert data analyst and assistant for the European Social Survey (ESS).
 Your goal is to answer the user's question as accurately as possible by querying the ESS database.
-
 You have access to one tool: \`executeQueryTool\`.
 
-Here is your workflow:
+This is the conversation history. Use it to understand the context of the user's question:
+--- HISTORY START ---
+${(input.history || []).map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n')}
+--- HISTORY END ---
+
+Here is your workflow based on the user's LATEST question:
 1.  Analyze the user's question: "${input.question}"
-2.  You MUST use the \`executeQueryTool\` to answer the question. Pass the user's question directly to the 'nlQuestion' parameter of the tool.
+2.  You MUST use the \`executeQueryTool\` to answer the question if it requires data. Pass the user's question directly to the 'nlQuestion' parameter of the tool.
 3.  When you get a result from the tool, analyze it:
     - If the tool returns data, explain the data to the user in a clear, easy-to-understand way.
     - If the tool returns an error, you MUST display the error message to the user.
@@ -74,7 +84,7 @@ Your final answer should be ONLY the natural language response. Do not include t
     }
 
     // Handle cases where the model decides to respond without using a tool
-    if (llmResponse.candidates[0].message.content.length > 0) {
+    if (llmResponse.candidates[0]?.message.content.length > 0) {
       const answer = llmResponse.candidates[0].message.content.map(part => part.text).join('');
       return { answer };
     }
