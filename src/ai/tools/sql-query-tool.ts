@@ -12,6 +12,7 @@ import { ai } from '@/ai/genkit';
 import { executeQuery } from '@/lib/data-service';
 import { z } from 'zod';
 import { suggestSqlQuery, type SuggestSqlQueryOutput } from '../flows/suggest-sql-query';
+import { searchCodebook } from '@/lib/vector-search';
 
 const toolOutputSchema = z.object({
   sqlQuery: z.string().optional(),
@@ -22,10 +23,9 @@ const toolOutputSchema = z.object({
 export const executeQueryTool = ai.defineTool(
   {
     name: 'executeQueryTool',
-    description: 'Use this tool to query the database to answer user questions about the data. Takes a natural language question and optional codebook context as input.',
+    description: 'Use this tool to query the database to answer user questions about the data. Takes a natural language question as input.',
     inputSchema: z.object({
       nlQuestion: z.string().describe('A natural language question that can be answered with a SQL query.'),
-      codebookContext: z.string().describe('Relevant context retrieved from the codebook to help generate an accurate query. This should come from the `codebookRetrievalTool`.')
     }),
     outputSchema: toolOutputSchema,
   },
@@ -33,12 +33,20 @@ export const executeQueryTool = ai.defineTool(
     let sqlQuery = '';
 
     try {
-      // Step 1: Generate SQL using the provided question and context
+      // Step 1: Retrieve context from the codebook vector store.
+      const searchResults = await searchCodebook(input.nlQuestion, 5);
+      const codebookContext = searchResults.length > 0
+        ? searchResults.map((doc) => doc.content).join('\n\n---\n\n')
+        : 'No relevant context found in codebook.';
+        
+      console.log(`[executeQueryTool] Retrieved context for: "${input.nlQuestion}"`);
+
+      // Step 2: Generate SQL using the provided question and retrieved context
       let suggestion: SuggestSqlQueryOutput;
       try {
         suggestion = await suggestSqlQuery({
           question: input.nlQuestion,
-          codebook: input.codebookContext,
+          codebook: codebookContext,
         });
         sqlQuery = suggestion.sqlQuery;
       } catch (suggestionError: any) {
@@ -55,7 +63,7 @@ export const executeQueryTool = ai.defineTool(
       
       console.log(`[executeQueryTool] Generated SQL: ${sqlQuery}`);
 
-      // Step 2: Execute SQL
+      // Step 3: Execute SQL
       const result = await executeQuery(sqlQuery);
       
       if (result.error) {
