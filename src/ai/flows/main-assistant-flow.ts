@@ -49,9 +49,9 @@ const mainAssistantFlow = ai.defineFlow(
 Your goal is to answer the user's question as accurately as possible by querying the ESS database.
 You have access to one tool: \`executeQueryTool\`.
 
-Here is your workflow based on the user's LATEST question:
-1.  Analyze the user's question.
-2.  You MUST use the \`executeQueryTool\` to answer the question if it requires data. Pass the user's question directly to the 'nlQuestion' parameter of the tool.
+Here is your workflow:
+1.  Analyze the user's question in the context of the conversation history.
+2.  If the question requires data from the database (including follow-up questions like "what is that in percentage?"), you MUST use the \`executeQueryTool\`. Pass a natural language question to the 'nlQuestion' parameter. This question should be self-contained, using the conversation history to resolve any ambiguities. For example, if the previous answer was a count and the user now asks for "the percentage", you should formulate a new question like "what is the percentage of...".
 3.  When you get a result from the tool, analyze it:
     - If the tool returns data, explain the data to the user in a clear, easy-to-understand way.
     - If the tool returns an error, you MUST display the error message to the user.
