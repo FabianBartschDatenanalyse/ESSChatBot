@@ -77,12 +77,14 @@ export async function runLinearRegression(
     }
 
     const X = df.loc({ columns: features });
-    const y = df.loc({ columns: [target] });
+    // This is the fix: y must be a 1-D Series, not a DataFrame.
+    // df[target] returns a Series. df.loc({ columns: [target] }) returns a DataFrame.
+    const y = df[target];
 
     console.log('[stats-service] Starting model fitting...');
     // 4. Run the regression
     const model = new dfd.LinearRegression();
-    await model.fit(X, y);
+    await model.fit(X, y as dfd.Series);
     
     console.log('[stats-service] Model fitting successful.');
     // 5. Format and return the results
@@ -94,7 +96,7 @@ export async function runLinearRegression(
           return obj;
         }, {} as Record<string, number>)
       },
-      r_squared: await model.score(X, y),
+      r_squared: await model.score(X, y as dfd.Series),
       n_observations: df.shape[0],
       note: "p-values are not provided by the underlying `danfo.js` library."
     };
