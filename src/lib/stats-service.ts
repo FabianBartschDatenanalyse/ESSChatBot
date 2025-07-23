@@ -1,6 +1,7 @@
 'use server';
 
-import * as dfd from 'danfojs-node'; // or 'danfojs-node' if you're on Node runtime
+import * as dfd from 'danfojs-node';
+import * as tf from '@tensorflow/tfjs-node';
 import { executeQuery } from './data-service';
 
 /**
@@ -20,29 +21,25 @@ export interface RegressionResponse {
 }
 
 /**
- * Prepares the data and runs a linear regression using Danfo.js, avoiding the common
- * `values.includes is not a function` error by forcing plain JS arrays and avoiding
- * APIs that may not exist in some Danfo builds (e.g. df.astype).
+ * Prepares the data and runs a linear regression using TensorFlow.js,
+ * utilizing Danfo.js for data handling.
  */
 export async function runLinearRegression(
   target: string,
   features: string[],
   filters?: Record<string, any>
 ): Promise<RegressionResponse> {
-  console.log(`[stats-service] Starting linear regression for target '${target}' with features '${features.join(', ')}'.`);
+  console.log(`[stats-service] Starting linear regression with TensorFlow.js for target '${target}' with features '${features.join(', ')}'.`);
 
   const allColumns = [target, ...features];
+  let query = `SELECT ${allColumns.map(c => `"${c}"`).join(', ')} FROM "ESS1"`;
 
-  // ------------------- 1. Build SQL query -------------------
-  let query = `SELECT ${allColumns.map((c) => `"${c}"`).join(', ')} FROM "ESS1"`;
   const whereClauses: string[] = [];
 
-  // User-supplied filters
   if (filters) {
     for (const [key, value] of Object.entries(filters)) {
       if (Array.isArray(value)) {
-        const inVals = value.map((v) => (typeof v === 'string' ? `'${v}'` : v)).join(',');
-        whereClauses.push(`"${key}" IN (${inVals})`);
+        whereClauses.push(`"${key}" IN (${value.map(v => `'${v}'`).join(',')})`);
       } else {
         const filterValue = typeof value === 'string' ? `'${value}'` : value;
         whereClauses.push(`"${key}" = ${filterValue}`);
@@ -50,147 +47,111 @@ export async function runLinearRegression(
     }
   }
 
-  // Exclude common missing codes (strings in DB)
-  const missings = ['7', '8', '9', '77', '88', '99', '777', '888', '999', '66', '55'];
+  // Add WHERE clauses to filter out common missing value codes
   for (const col of allColumns) {
-    whereClauses.push(`"${col}" NOT IN (${missings.map((m) => `'${m}'`).join(',')})`);
+    whereClauses.push(`"${col}" NOT IN ('7','8','9','77','88','99','66','55', '777', '888', '999')`);
+  }
+  
+  if (whereClauses.length > 0) {
+    query += ` WHERE ${whereClauses.join(' AND ')}`;
   }
 
-  if (whereClauses.length) query += ` WHERE ${whereClauses.join(' AND ')}`;
-  console.log('[stats-service] Executing data retrieval query:', query);
-
-  // ------------------- 2. Fetch data -------------------
-  const queryResult = await executeQuery(query);
-  if (queryResult.error || !queryResult.data || queryResult.data.length === 0) {
-    const errorMsg = `Failed to fetch data for regression: ${queryResult.error || 'No data returned'}`;
-    console.error(`[stats-service] ${errorMsg}`);
-    return { error: errorMsg, sqlQuery: query };
-  }
-  console.log(`[stats-service] Successfully fetched ${queryResult.data.length} rows.`);
-
-  // ------------------- Variables for catch logging -------------------
-  let df: dfd.DataFrame | undefined;
-  let X_df: dfd.DataFrame | undefined;
-  let y_sr: dfd.Series | undefined;
-  let X: number[][] | undefined;
-  let y: number[] | undefined;
+  let df: dfd.DataFrame;
+  let dfClean: dfd.DataFrame;
+  let X: tf.Tensor;
+  let y: tf.Tensor;
+  let weights: tf.Tensor[];
 
   try {
-    // ------------------- 3. Create DataFrame -------------------
-    df = new dfd.DataFrame(queryResult.data);
-    console.log('[stats-service] DataFrame created. Shape before cleaning:', df.shape);
+    // ------------------- 1. Execute Query -------------------
+    console.log('[stats-service] Executing SQL query:', query);
+    const { data: queryData, error: queryError } = await executeQuery(query);
 
-    // ------------------- 4. Numeric coercion (no df.astype) -------------------
+    if (queryError) {
+      throw new Error(`SQL query failed: ${queryError}`);
+    }
+
+    if (!queryData || queryData.length === 0) {
+      return { error: 'No data available for regression after querying', sqlQuery: query };
+    }
+
+    // ------------------- 2. Load and Prepare Data -------------------
+    df = new dfd.DataFrame(queryData);
+    console.log('[stats-service] Loaded data into DataFrame. Initial shape:', df.shape);
+
     for (const col of allColumns) {
-      const ser = (df as dfd.DataFrame)[col].apply((v: any) => {
-        const n = Number(v);
-        return Number.isFinite(n) ? n : NaN;
-      }, { axis: 0 });
-      df.addColumn(col, ser, { inplace: true });
+        df[col] = df[col].apply((val: any) => parseFloat(val), { axis: 0 });
+    }
+    
+    dfClean = df.dropNa({ axis: 0 });
+    console.log('[stats-service] DataFrame shape after dropping NaNs:', dfClean.shape);
+
+    if (dfClean.shape[0] < features.length + 2) {
+      return { error: `Not enough valid rows after cleaning (rows=${dfClean.shape[0]}) to perform regression.`, sqlQuery: query };
     }
 
-    // Drop rows with NaN values after casting
-    df = df.dropNa({ axis: 0 });
-    console.log('[stats-service] DataFrame shape after cleaning (dropping NaNs):', df.shape);
+    // ------------------- 3. Create Tensors -------------------
+    const X_df = dfClean.loc({ columns: features });
+    const y_sr = dfClean[target] as dfd.Series;
 
-    if (df.shape[0] < features.length + 2) {
-      const errorMsg = `Not enough valid data points to run a regression after cleaning. (Rows: ${df.shape[0]}, Features: ${features.length + 1})`;
-      console.error(`[stats-service] ${errorMsg}`);
-      return { error: errorMsg, sqlQuery: query };
-    }
+    X = tf.tensor2d(X_df.values as number[][]);
+    y = tf.tensor2d(y_sr.values as number[], [y_sr.size, 1]);
 
-    // ------------------- 5. Split X / y -------------------
-    X_df = df.loc({ columns: features });
-    y_sr = df[target] as dfd.Series;
+    console.log('[stats-service] Prepared Tensors for TensorFlow.js:');
+    console.log('X shape:', X.shape);
+    console.log('y shape:', y.shape);
+    
+    // ------------------- 4. Build and Train Model -------------------
+    const model = tf.sequential();
+    model.add(tf.layers.dense({ units: 1, inputShape: [features.length] }));
+    model.compile({ loss: 'meanSquaredError', optimizer: 'sgd' });
 
-    // ------------------- 6. Force Plain JS arrays -------------------
-    const toPlain2D = (obj: any): number[][] => {
-      if (obj?.tensor?.arraySync) return obj.tensor.arraySync();
-      if (Array.isArray(obj?.values)) return (obj.values as any[]).map((r) => Array.from(r));
-      // last resort: DataFrame -> Series[] -> numbers
-      return obj?.values ? Array.from(obj.values) : [];
-    };
+    console.log('[stats-service] Training TensorFlow.js model...');
+    await model.fit(X, y, { epochs: 100 });
+    console.log('[stats-service] Model training complete.');
 
-    const toPlain1D = (obj: any): number[] => {
-      if (obj?.tensor?.arraySync) return obj.tensor.arraySync();
-      if (obj?.values) return Array.from(obj.values as any);
-      return [];
-    };
-
-    X = toPlain2D(X_df);
-    y = toPlain1D(y_sr);
-
-    console.log('[stats-service] X/y checks:', {
-      X_isArray: Array.isArray(X),
-      y_isArray: Array.isArray(y),
-      X0_isArray: Array.isArray(X?.[0]),
-      X0: X?.[0],
-      y0: y?.[0],
-    });
-
-    console.log('[stats-service] Data before fitting model:', {
-          X_type: typeof X,
-          y_type: typeof y,
-          X_isArray: Array.isArray(X),
-          y_isArray: Array.isArray(y),
-          X_sample: X?.[0],
-          y_sample: y?.[0],
-          X_shape: (X as any)?.shape, // Attempt to log shape if it's a DataFrame
-          y_shape: (y as any)?.shape,
-        });
-
-    // ------------------- 7. Fit model -------------------
-    const model = new dfd.LinearRegression();
-    await model.fit(X, y);
-
-    // ------------------- 8. Score & format -------------------
-    const r2 = await model.score(X, y);
+    // ------------------- 5. Extract Results -------------------
+    weights = model.getWeights();
+    const coefficientsArray = await weights[0].array() as number[][];
+    const interceptArray = await weights[1].array() as number[];
 
     const coefficients: Record<string, number> & { intercept: number } = {
-      intercept: model.intercept,
+      intercept: interceptArray[0],
     } as any;
     features.forEach((f, i) => {
-      coefficients[f] = model.coef[i];
+      coefficients[f] = coefficientsArray[i][0];
     });
+
+    const predictions = model.predict(X) as tf.Tensor;
+    const meanY = y.mean();
+    const totalSumOfSquares = y.sub(meanY).square().sum();
+    const residualSumOfSquares = y.sub(predictions).square().sum();
+    const r2Tensor = tf.scalar(1).sub(residualSumOfSquares.div(totalSumOfSquares));
+    const r2 = await r2Tensor.array() as number;
 
     const result: RegressionResult = {
       coefficients,
       r_squared: r2,
-      n_observations: df.shape[0],
-      note: 'p-values are not provided by the underlying danfo.js library.',
+      n_observations: dfClean.shape[0],
+      note: 'Linear regression performed using TensorFlow.js. R-squared is an estimate.',
     };
-
-    console.log('[stats-service] Regression calculation successful:', result);
+    
+    console.log('[stats-service] Regression calculation successful.');
     return { data: result, sqlQuery: query };
+
   } catch (e: any) {
     const errorDetails = {
       message: e?.message,
       stack: e?.stack,
-      X_isArray: Array.isArray(X),
-      y_isArray: Array.isArray(y),
-      X0: X?.[0],
-      y0: y?.[0],
     };
-
-    console.error('[stats-service] Regression failed', e, errorDetails);
-
-    const errorMessage = `Regression failed: ${e?.message || 'Unknown error'}
-
-` +
-      `DEBUGGING LOGS:
-` +
-      `-----------------
-` +
-      `X isArray: ${errorDetails.X_isArray}
-` +
-      `y isArray: ${errorDetails.y_isArray}
-` +
-      `X[0] sample: ${JSON.stringify(errorDetails.X0)}
-` +
-      `y[0] sample: ${JSON.stringify(errorDetails.y0)}
-` +
-      `Stack: ${errorDetails.stack || 'Not available'}`;
-
-    return { error: errorMessage, sqlQuery: query };
+    console.error('[stats-service] An exception occurred during regression:', errorDetails);
+    return { error: `Regression failed: ${e?.message || 'Unknown error'}. Please check the console for details.`, sqlQuery: query };
+  } finally {
+      // Clean up tensors
+      X?.dispose();
+      y?.dispose();
+      if(weights) {
+        weights.forEach(w => w.dispose());
+      }
   }
 }
