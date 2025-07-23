@@ -46,9 +46,9 @@ const mainAssistantFlow = ai.defineFlow(
   async (input) => {
     console.log('[mainAssistantFlow] Received input:', JSON.stringify(input, null, 2));
     
-    // Convert Zod-validated history to Genkit's Message type
+    // Convert Zod-validated history to Genkit's Message type, mapping 'assistant' to 'model'
     const history: GenkitMessage[] = (input.history || []).map(h => ({
-      role: h.role,
+      role: h.role === 'assistant' ? 'model' : h.role,
       content: [{ text: h.content }],
     }));
 
