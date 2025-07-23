@@ -76,7 +76,7 @@ If a tool was used, you MUST also present the final SQL query that was used in a
       model: 'openai/gpt-4o',
       tools: [executeQueryTool, statisticsTool],
       system: systemPrompt,
-      history: [...history, { role: 'user', content: [{ text: input.question }] }],
+      messages: [...history, { role: 'user', content: [{ text: input.question }] }],
       config: {
         maxToolRoundtrips: 5, // Prevent infinite loops
       },
