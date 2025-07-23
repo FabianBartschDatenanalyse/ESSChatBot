@@ -38,7 +38,8 @@ export const statisticsTool = ai.defineTool(
         
         if (result.error) {
             console.error('[statisticsTool] Analysis failed:', result.error);
-            return { error: `❌ Analysis failed: ${result.error}`, sqlQuery: result.sqlQuery };
+            // Pass the detailed error message from the service directly.
+            return { error: result.error, sqlQuery: result.sqlQuery };
         }
 
         console.log(`[statisticsTool] Analysis successful.`);

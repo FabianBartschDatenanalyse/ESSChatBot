@@ -19,7 +19,7 @@ export async function runLinearRegression(
 
   // 1. Construct the SQL query to fetch the necessary data
   const allColumns = [target, ...features];
-  let query = `SELECT ${allColumns.map(c => `"${c}"`).join(', ')} FROM "ESS1"`;
+  let query = `SELECT ${allColumns.join(', ')} FROM "ESS1"`;
   
   const whereClauses: string[] = [];
 
@@ -35,8 +35,8 @@ export async function runLinearRegression(
     }
   }
 
-  // Add filters to exclude common missing value codes
-  for (const col of allColumns) {
+  // Add filters to exclude common missing value codes for all columns involved.
+   for (const col of allColumns) {
     whereClauses.push(`"${col}" NOT IN ('7', '8', '9', '77', '88', '99', '777', '888', '999', '66', '55')`);
   }
   
@@ -46,7 +46,7 @@ export async function runLinearRegression(
   
   console.log('[stats-service] Executing data retrieval query:', query);
 
-  // 2. Fetch the data using the existing data service
+  // 2. Fetch the data
   const queryResult = await executeQuery(query);
 
   if (queryResult.error || !queryResult.data || queryResult.data.length === 0) {
@@ -58,11 +58,12 @@ export async function runLinearRegression(
   console.log(`[stats-service] Successfully fetched ${queryResult.data.length} rows.`);
 
   // Hoist variables for debugging in catch block
-  let df: dfd.DataFrame = new dfd.DataFrame(queryResult.data);
+  let df: dfd.DataFrame | undefined;
   let X: number[][] | undefined;
   let y: number[] | undefined;
 
   try {
+    df = new dfd.DataFrame(queryResult.data);
     console.log('[stats-service] DataFrame created. Shape before cleaning:', df.shape);
     
     // Convert all relevant columns to a numeric type.
@@ -118,14 +119,22 @@ export async function runLinearRegression(
     return { data: result, sqlQuery: query };
 
   } catch (e: any) {
-    const errorMessage = `An error occurred during regression calculation: ${e.message}`;
-    console.error(`[stats-service] ${errorMessage}`, {
-        err: e,
-        X_isArray: Array.isArray(X),
-        y_isArray: Array.isArray(y),
-        X_sample: X?.[0],
-        y_sample: y?.[0],
-    });
+    const errorDetails = `
+      Error Message: ${e.message}
+      
+      DEBUGGING LOGS:
+      - X type: ${typeof X}
+      - X isArray: ${Array.isArray(X)}
+      - X constructor: ${X?.constructor?.name}
+      - X sample: ${JSON.stringify(X?.[0])}
+      
+      - y type: ${typeof y}
+      - y isArray: ${Array.isArray(y)}
+      - y constructor: ${y?.constructor?.name}
+      - y sample: ${y?.[0]}
+    `;
+    const errorMessage = `An error occurred during regression calculation. Details: ${errorDetails}`;
+    console.error(`[stats-service] ${errorMessage}`, e);
     return { error: errorMessage, sqlQuery: query };
   }
 }
