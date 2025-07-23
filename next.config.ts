@@ -24,6 +24,17 @@ const nextConfig: NextConfig = {
       }
     ],
   },
+   webpack: (config, { isServer }) => {
+    // Fix for 'supports-color' issue with @tensorflow/tfjs
+    if (!isServer) {
+      config.resolve.alias['supports-color'] = false;
+    }
+    
+    // Ensure node-pre-gyp is not bundled on the client
+    config.externals.push('@mapbox/node-pre-gyp');
+
+    return config;
+  },
 };
 
 export default nextConfig;
