@@ -77,6 +77,7 @@ export async function runLinearRegression(
     const X_df = df.loc({ columns: features });
     const y_sr = df[target] as dfd.Series;
     
+    // Explicitly convert to plain JavaScript arrays to avoid internal type issues in Danfo.js
     const X = X_df.values as number[][];
     const y = y_sr.values as number[];
 
