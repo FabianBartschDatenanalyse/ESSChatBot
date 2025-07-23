@@ -10,6 +10,8 @@ import Logo from '@/components/logo';
 import AskAiPanel from '@/components/ask-ai-panel';
 import HistoryPanel from '@/components/history-panel';
 import { Button } from './ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import SqlToolPanel from './sql-tool-panel';
 
 export type Message = {
   role: 'user' | 'assistant';
@@ -28,7 +30,6 @@ export default function Dashboard() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 
-  // Effect to create a new conversation if none exist
   useEffect(() => {
     if (conversations.length === 0) {
       handleNewConversation();
@@ -66,7 +67,7 @@ export default function Dashboard() {
         <SidebarContent className="p-0 flex flex-col">
             <SidebarHeader className='p-4 border-b border-sidebar-border'>
               <div className="flex items-center gap-3">
-                <Logo className="h-10 text-primary" />
+                <Logo className="h-10" />
                 <div className="flex flex-col">
                   <h2 className="font-headline text-lg font-semibold">ESS Navigator</h2>
                   <p className="text-xs text-muted-foreground -mt-1">AI Data Explorer</p>
@@ -100,27 +101,38 @@ export default function Dashboard() {
           <SidebarTrigger />
         </header>
         <main className="flex-1 p-4 sm:p-6">
-           <Card>
-            <CardHeader>
-              <div>
-                <CardTitle className="font-headline">AI Assistant</CardTitle>
-                <CardDescription>Get answers about the ESS dataset from our intelligent assistant.</CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {activeConversation ? (
-                <AskAiPanel
-                  key={activeConversation.id}
-                  conversation={activeConversation}
-                  onMessagesUpdate={updateConversation}
-                />
-              ) : (
-                  <div className="flex h-[65vh] flex-col items-center justify-center">
-                    <p className="text-muted-foreground">Select a conversation or start a new one.</p>
+          <Tabs defaultValue="assistant" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="assistant">AI Assistant</TabsTrigger>
+              <TabsTrigger value="sql">SQL Tool</TabsTrigger>
+            </TabsList>
+            <TabsContent value="assistant">
+              <Card>
+                <CardHeader>
+                  <div>
+                    <CardTitle className="font-headline">AI Assistant</CardTitle>
+                    <CardDescription>Get answers about the ESS dataset from our intelligent assistant.</CardDescription>
                   </div>
-              )}
-            </CardContent>
-          </Card>
+                </CardHeader>
+                <CardContent>
+                  {activeConversation ? (
+                    <AskAiPanel
+                      key={activeConversation.id}
+                      conversation={activeConversation}
+                      onMessagesUpdate={updateConversation}
+                    />
+                  ) : (
+                      <div className="flex h-[65vh] flex-col items-center justify-center">
+                        <p className="text-muted-foreground">Select a conversation or start a new one.</p>
+                      </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="sql">
+              <SqlToolPanel />
+            </TabsContent>
+          </Tabs>
         </main>
       </SidebarInset>
     </SidebarProvider>
