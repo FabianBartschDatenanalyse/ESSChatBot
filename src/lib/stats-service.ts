@@ -66,7 +66,7 @@ export async function runLinearRegression(
     }
     
     // Drop rows with NaN, null, or undefined values that might have resulted from casting or were present in the data
-    df.dropna({ inplace: true });
+    df = df.dropNa({ axis: 0 });
     console.log('[stats-service] DataFrame shape after cleaning (dropping nulls):', df.shape);
 
 
