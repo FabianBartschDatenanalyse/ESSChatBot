@@ -38,11 +38,11 @@ export const statisticsTool = ai.defineTool(
         
         if (result.error) {
             console.error('[statisticsTool] Analysis failed:', result.error);
-            return { error: `❌ Analysis failed: ${result.error}` };
+            return { error: `❌ Analysis failed: ${result.error}`, sqlQuery: result.sqlQuery };
         }
 
         console.log(`[statisticsTool] Analysis successful.`);
-        return { result: result.data };
+        return { result: result.data, sqlQuery: result.sqlQuery };
 
     } catch (e: any) {
       const errorMsg = `💥 Unexpected error in statisticsTool: ${e.message || 'Unknown error'}`;

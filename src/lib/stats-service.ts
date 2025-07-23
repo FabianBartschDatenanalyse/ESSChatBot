@@ -14,7 +14,7 @@ export async function runLinearRegression(
   target: string,
   features: string[],
   filters?: Record<string, any>
-): Promise<{ data?: any; error?: string }> {
+): Promise<{ data?: any; error?: string; sqlQuery?: string }> {
   console.log(`[stats-service] Starting linear regression for target '${target}' with features '${features.join(', ')}'.`);
 
   // 1. Construct the SQL query to fetch the necessary data
@@ -32,10 +32,9 @@ export async function runLinearRegression(
     }
   }
 
-  // Add filters to exclude missing values for all involved columns
-  // Assuming 77, 88, 99 are common missing value codes and stored as numbers/text
+  // Add filters to exclude common missing value codes
   for (const col of allColumns) {
-    whereClauses.push(`"${col}" NOT IN ('77', '88', '99', '777', '888', '999', '66', '55')`);
+    whereClauses.push(`"${col}" NOT IN ('7', '8', '9', '77', '88', '99', '777', '888', '999', '66', '55')`);
   }
   
   if (whereClauses.length > 0) {
@@ -50,7 +49,7 @@ export async function runLinearRegression(
   if (queryResult.error || !queryResult.data || queryResult.data.length === 0) {
     const errorMsg = `Failed to fetch data for regression: ${queryResult.error || 'No data returned'}`;
     console.error(`[stats-service] ${errorMsg}`);
-    return { error: errorMsg };
+    return { error: errorMsg, sqlQuery: query };
   }
 
   // 3. Prepare data using Danfo.js
@@ -60,14 +59,16 @@ export async function runLinearRegression(
 
     // Ensure all columns are numeric
     for (const col of allColumns) {
-        df = df.astype(col, 'float32');
+        df.astype(col, 'float32', { inplace: true });
     }
     
-    // Drop rows with NaN values that might have resulted from casting
+    // Drop rows with NaN, null, or undefined values that might have resulted from casting or were present in the data
     df.dropna({ inplace: true });
 
-    if (df.shape[0] < features.length + 1) {
-        return { error: 'Not enough valid data points to run a regression after cleaning.' };
+    if (df.shape[0] < features.length + 2) { // Need more data points than features + intercept
+        const errorMsg = 'Not enough valid data points to run a regression after cleaning.';
+        console.error(`[stats-service] ${errorMsg} (Rows: ${df.shape[0]}, Features: ${features.length})`);
+        return { error: errorMsg, sqlQuery: query };
     }
 
     const X = df.loc({ columns: features });
@@ -87,15 +88,15 @@ export async function runLinearRegression(
         }, {} as Record<string, number>)
       },
       r_squared: await model.score(X, y),
-      n: df.shape[0],
-      note: "p-values are not provided by the danfo.js library."
+      n_observations: df.shape[0],
+      note: "p-values are not provided by the underlying `danfo.js` library."
     };
     
     console.log('[stats-service] Regression successful:', result);
-    return { data: result };
+    return { data: result, sqlQuery: query };
 
   } catch (e: any) {
     console.error(`[stats-service] An error occurred during regression calculation: ${e.message}`);
-    return { error: `Calculation failed: ${e.message}` };
+    return { error: `Calculation failed: ${e.message}`, sqlQuery: query };
   }
 }
