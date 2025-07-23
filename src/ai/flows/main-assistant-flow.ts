@@ -15,15 +15,14 @@ import {ai} from '@/ai/genkit';
 import {Message as GenkitMessage, z} from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
 import { statisticsTool } from '../tools/statistics-tool';
+import { MessageSchema } from '@/lib/types';
 
-const MessageSchema = z.object({
-    role: z.enum(['user', 'assistant', 'tool']),
-    content: z.string(),
-});
+// Omit context fields from the history schema to prevent token overflow.
+const HistoryMessageSchema = MessageSchema.omit({ sqlQuery: true, retrievedContext: true });
 
 const MainAssistantInputSchema = z.object({
   question: z.string().describe("The user's current question."),
-  history: z.array(MessageSchema).optional().describe("The conversation history."),
+  history: z.array(HistoryMessageSchema).optional().describe("The conversation history."),
 });
 export type MainAssistantInput = z.infer<typeof MainAssistantInputSchema>;
 
@@ -87,20 +86,23 @@ If a tool was used, you MUST also present the final SQL query that was used in a
     let retrievedContext: string | undefined;
     
     // Extract context from the last tool call response if it exists
-    const toolCallOutputs = llmResponse.history.filter(m => m.role === 'tool');
-    if (toolCallOutputs.length > 0) {
-        const lastToolOutput = toolCallOutputs[toolCallOutputs.length - 1];
-        try {
-            const toolContent = lastToolOutput.content[0].text;
-            if (toolContent) {
-                const parsedContent = JSON.parse(toolContent);
-                sqlQuery = parsedContent.sqlQuery;
-                retrievedContext = parsedContent.retrievedContext;
+    if (llmResponse.history) {
+        const toolCallOutputs = llmResponse.history.filter(m => m.role === 'tool');
+        if (toolCallOutputs.length > 0) {
+            const lastToolOutput = toolCallOutputs[toolCallOutputs.length - 1];
+            try {
+                const toolContent = lastToolOutput.content[0].text;
+                if (toolContent) {
+                    const parsedContent = JSON.parse(toolContent);
+                    sqlQuery = parsedContent.sqlQuery;
+                    retrievedContext = parsedContent.retrievedContext;
+                }
+            } catch (e) {
+                console.warn("[mainAssistantFlow] Could not parse tool output to extract context.", e);
             }
-        } catch (e) {
-            console.warn("[mainAssistantFlow] Could not parse tool output to extract context.", e);
         }
     }
+
 
     return {
       answer,

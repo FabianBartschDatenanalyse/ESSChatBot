@@ -9,17 +9,11 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z, Message} from 'genkit';
-
-const MessageSchema = z.object({
-  role: z.enum(['user', 'assistant', 'tool']),
-  content: z.string(),
-});
+import {z} from 'genkit';
 
 const SuggestSqlQueryInputSchema = z.object({
   question: z.string().describe('The natural language question to generate a SQL query for.'),
   codebook: z.string().describe('Relevant context from the database codebook to use to construct the query.'),
-  history: z.array(MessageSchema).optional().describe("The conversation history."),
 });
 export type SuggestSqlQueryInput = z.infer<typeof SuggestSqlQueryInputSchema>;
 
@@ -37,9 +31,9 @@ const prompt = ai.definePrompt({
   input: {schema: SuggestSqlQueryInputSchema},
   output: {schema: SuggestSqlQueryOutputSchema},
   model: 'openai/gpt-4o',
-  prompt: `You are an expert SQL query writer. Your task is to generate a valid SQL query based on a user's question, conversation history, and relevant context from a database codebook.
+  prompt: `You are an expert SQL query writer. Your task is to generate a valid SQL query based on a user's question and relevant context from a database codebook.
 
-  Carefully analyze the user's question, the history, and the provided context to construct an accurate query.
+  Carefully analyze the user's question and the provided context to construct an accurate query.
 
   **CRITICAL RULES:**
   1.  **Table Name:** The ONLY table you can query is "ESS1". This table name MUST ALWAYS be enclosed in double quotes (e.g., \`FROM "ESS1"\`).
@@ -48,15 +42,6 @@ const prompt = ai.definePrompt({
   4.  **No Semicolon:** The generated SQL query MUST NOT end with a semicolon.
   5.  **Filtering Missing Values:** When aggregating data (e.g., with AVG, COUNT), you MUST exclude rows with missing or invalid data. The codebook specifies missing values with codes like 77, 88, and 99. These are stored as TEXT, so you MUST compare them as strings. Always include a \`WHERE\` clause to filter these out (e.g., \`WHERE trstprl NOT IN ('77', '88', '99')\`).
   6.  **Empty Query Fallback:** If you cannot determine a valid SQL query from the request, you MUST return an empty string for the 'sqlQuery' field.
-
-  **Conversation History (for context on follow-up questions):**
-  {{#if history}}
-    {{#each history}}
-      **{{role}}**: {{content}}
-    {{/each}}
-  {{else}}
-    No history.
-  {{/if}}
 
   **User's Current Question (this is the question you need to turn into SQL):**
   {{{question}}}

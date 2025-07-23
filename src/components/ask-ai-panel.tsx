@@ -13,7 +13,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Loader2, Send } from 'lucide-react';
 import Logo from './logo';
-import type { Conversation, Message } from './dashboard';
+import { Conversation, Message } from './dashboard';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Code2, Database } from 'lucide-react';
 
@@ -49,9 +49,13 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
     form.reset();
 
     try {
-      // Pass the existing messages as history
-      const history = messages.map(({ role, content }) => ({ role, content: content as string, tool_calls: [] }));
-      const result = await mainAssistant({ question: values.question, history: history.map(m => ({role: m.role, content: m.content})) as any[]});
+      // Pass only the essential parts of the history, excluding context and queries
+      const historyForApi = messages.map(({ role, content }) => ({ role, content }));
+      
+      const result = await mainAssistant({ 
+        question: values.question, 
+        history: historyForApi
+      });
       
       const assistantMessage: Message = {
         role: 'assistant',
@@ -168,5 +172,3 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
     </div>
   );
 }
-
-    

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { History, PlusCircle } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+import type { Conversation, Message } from '@/lib/types';
 
 import { SidebarProvider, Sidebar, SidebarInset, SidebarTrigger, SidebarContent, SidebarHeader, SidebarGroup, SidebarGroupLabel, SidebarSeparator } from '@/components/ui/sidebar';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -11,35 +12,27 @@ import AskAiPanel from '@/components/ask-ai-panel';
 import HistoryPanel from '@/components/history-panel';
 import { Button } from './ui/button';
 
-export type Message = {
-  role: 'user' | 'assistant';
-  content: string;
-  sqlQuery?: string;
-  retrievedContext?: string;
-};
-
-export type Conversation = {
-  id: string;
-  title: string;
-  messages: Message[];
-};
-
 export default function Dashboard() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 
   useEffect(() => {
+    // On initial load, create a new conversation if none exist.
     if (conversations.length === 0) {
       handleNewConversation();
     }
-  }, [conversations.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   
   const handleNewConversation = () => {
     const newId = uuidv4();
     const newConversation: Conversation = {
       id: newId,
       title: 'New Conversation',
-      messages: [],
+      messages: [{
+        role: 'assistant',
+        content: "Hello! I'm the ESS Navigator assistant. Ask me anything about the European Social Survey dataset."
+      }],
     };
     setConversations(prev => [...prev, newConversation]);
     setActiveConversationId(newId);
@@ -49,7 +42,11 @@ export default function Dashboard() {
     setConversations(prev =>
       prev.map(conv => {
         if (conv.id === conversationId) {
-          const newTitle = updatedMessages.length > 0 ? updatedMessages[0].content.substring(0, 40) + '...' : 'New Conversation';
+          // Update title based on the first user message, if it exists
+          const firstUserMessage = updatedMessages.find(m => m.role === 'user');
+          const newTitle = firstUserMessage 
+            ? firstUserMessage.content.substring(0, 40) + (firstUserMessage.content.length > 40 ? '...' : '') 
+            : conv.title;
           return { ...conv, messages: updatedMessages, title: newTitle };
         }
         return conv;
