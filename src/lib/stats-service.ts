@@ -1,29 +1,19 @@
 'use server';
 
-import * as dfd from 'danfojs';
+import * as dfd from 'danfojs'; // or danfojs-node for Node runtime
 import { executeQuery } from './data-service';
 
-/**
- * Prepares the data and runs a linear regression using Danfo.js.
- * @param target The dependent variable.
- * @param features An array of independent variables.
- * @param filters Optional key-value pairs to filter the data.
- * @returns An object with the regression result or an error.
- */
 export async function runLinearRegression(
   target: string,
   features: string[],
   filters?: Record<string, any>
 ): Promise<{ data?: any; error?: string; sqlQuery?: string }> {
-  console.log(`[stats-service] Starting linear regression for target '${target}' with features '${features.join(', ')}'.`);
 
-  // 1. Construct the SQL query to fetch the necessary data
   const allColumns = [target, ...features];
-  let query = `SELECT ${allColumns.join(', ')} FROM "ESS1"`;
-  
+  let query = `SELECT ${allColumns.map(c => `"${c}"`).join(', ')} FROM "ESS1"`;
+
   const whereClauses: string[] = [];
 
-  // Add filters from the request
   if (filters) {
     for (const [key, value] of Object.entries(filters)) {
       if (Array.isArray(value)) {
@@ -35,106 +25,93 @@ export async function runLinearRegression(
     }
   }
 
-  // Add filters to exclude common missing value codes for all columns involved.
-   for (const col of allColumns) {
-    whereClauses.push(`"${col}" NOT IN ('7', '8', '9', '77', '88', '99', '777', '888', '999', '66', '55')`);
+  for (const col of allColumns) {
+    whereClauses.push(`"${col}" NOT IN ('7','8','9','77','88','99','777','888','999','66','55')`);
   }
-  
-  if (whereClauses.length > 0) {
-    query += ` WHERE ${whereClauses.join(' AND ')}`;
-  }
-  
-  console.log('[stats-service] Executing data retrieval query:', query);
+  if (whereClauses.length) query += ` WHERE ${whereClauses.join(' AND ')}`;
 
-  // 2. Fetch the data
   const queryResult = await executeQuery(query);
-
-  if (queryResult.error || !queryResult.data || queryResult.data.length === 0) {
-    const errorMsg = `Failed to fetch data for regression: ${queryResult.error || 'No data returned'}`;
-    console.error(`[stats-service] ${errorMsg}`);
-    return { error: errorMsg, sqlQuery: query };
+  if (queryResult.error || !queryResult.data?.length) {
+    return { error: `Failed to fetch data: ${queryResult.error || 'No data returned'}`, sqlQuery: query };
   }
 
-  console.log(`[stats-service] Successfully fetched ${queryResult.data.length} rows.`);
-
-  // Hoist variables for debugging in catch block
-  let df: dfd.DataFrame | undefined;
-  let X: number[][] | undefined;
-  let y: number[] | undefined;
+  // ---- Variables we’ll inspect in catch ----
+  let df: dfd.DataFrame;
+  let X_df: dfd.DataFrame;
+  let y_sr: dfd.Series;
+  let X: number[][];
+  let y: number[];
 
   try {
     df = new dfd.DataFrame(queryResult.data);
-    console.log('[stats-service] DataFrame created. Shape before cleaning:', df.shape);
-    
-    // Convert all relevant columns to a numeric type.
-    for (const col of allColumns) {
-        const numericSeries = df[col].apply((val: any) => parseFloat(val), { axis: 0 });
-        df.addColumn(col, numericSeries, { inplace: true });
-    }
-    
-    // Drop rows with NaN, null, or undefined values
+
+    // Cast numerics
+    df = df.astype(allColumns.reduce((m, c) => ({ ...m, [c]: 'float32' }), {}));
     df = df.dropNa({ axis: 0 });
-    console.log('[stats-service] DataFrame shape after cleaning (dropping nulls):', df.shape);
 
     if (df.shape[0] < features.length + 2) {
-        const errorMsg = `Not enough valid data points to run a regression after cleaning. (Rows: ${df.shape[0]}, Features: ${features.length + 1})`;
-        console.error(`[stats-service] ${errorMsg}`);
-        return { error: errorMsg, sqlQuery: query };
+      return { error: `Not enough valid rows after cleaning (rows=${df.shape[0]})`, sqlQuery: query };
     }
 
-    const X_df = df.loc({ columns: features });
-    const y_sr = df[target] as dfd.Series;
-    
-    // Force conversion to native JS arrays to avoid internal errors
-    X = X_df.tensor.arraySync() as number[][];
-    y = y_sr.tensor.arraySync() as number[];
+    X_df = df.loc({ columns: features });
+    y_sr = df[target] as dfd.Series;
 
-    // DEBUGGING LOGS
-    console.log('[stats-service] X type:', typeof X, 'isArray:', Array.isArray(X), 'constructor:', X?.constructor?.name);
-    console.log('[stats-service] y type:', typeof y, 'isArray:', Array.isArray(y), 'constructor:', y?.constructor?.name);
-    console.log('[stats-service] Sample X[0]:', X?.[0]);
-    console.log('[stats-service] Sample y[0]:', y?.[0]);
+    // ---- Force plain arrays ----
+    if ((X_df as any).tensor?.arraySync) {
+      X = (X_df as any).tensor.arraySync() as number[][];
+      y = (y_sr as any).tensor.arraySync() as number[];
+    } else {
+      // Fallback if tensor is absent
+      X = (X_df.values as any[]).map(row => Array.from(row));
+      y = Array.from(y_sr.values as any);
+    }
 
-    // 4. Run the regression
-    console.log('[stats-service] Starting model fitting...');
+    console.log('[stats-service] X/y checks:', {
+      X_isArray: Array.isArray(X),
+      y_isArray: Array.isArray(y),
+      X0_isArray: Array.isArray(X?.[0]),
+      X0: X?.[0],
+      y0: y?.[0],
+    });
+
     const model = new dfd.LinearRegression();
     await model.fit(X, y);
-    
-    console.log('[stats-service] Model fitting successful.');
-    // 5. Format and return the results
+
+    const r2 = await model.score(X, y);
+
     const result = {
       coefficients: {
         intercept: model.intercept,
-        ...features.reduce((obj, feat, i) => {
-          obj[feat] = model.coef[i];
-          return obj;
-        }, {} as Record<string, number>)
+        ...features.reduce((o, f, i) => ({ ...o, [f]: model.coef[i] }), {}),
       },
-      r_squared: await model.score(X, y),
+      r_squared: r2,
       n_observations: df.shape[0],
-      note: "p-values are not provided by the underlying `danfo.js` library."
+      note: 'p-values are not provided by danfo.js.',
     };
-    
-    console.log('[stats-service] Regression calculation successful:', result);
-    return { data: result, sqlQuery: query };
 
+    return { data: result, sqlQuery: query };
   } catch (e: any) {
-    const errorDetails = `
-      Error Message: ${e.message}
-      
-      DEBUGGING LOGS:
-      - X type: ${typeof X}
-      - X isArray: ${Array.isArray(X)}
-      - X constructor: ${X?.constructor?.name}
-      - X sample: ${JSON.stringify(X?.[0])}
-      
-      - y type: ${typeof y}
-      - y isArray: ${Array.isArray(y)}
-      - y constructor: ${y?.constructor?.name}
-      - y sample: ${y?.[0]}
-    `;
-    const errorMessage = `An error occurred during regression calculation. Details: ${errorDetails}`;
-    console.error(`[stats-service] ${errorMessage}`, e);
+    const errorDetails = {
+      error: e,
+      message: e?.message,
+      stack: e?.stack,
+      X_isArray: Array.isArray(X),
+      y_isArray: Array.isArray(y),
+      X0: X?.[0],
+      y0: y?.[0],
+    };
+    console.error('[stats-service] Regression failed', errorDetails);
+    
+    // Create a detailed, multi-line error message string for the LLM
+    const errorMessage = `Regression failed: ${e?.message || 'Unknown error'}\n\n` +
+                         `DEBUGGING LOGS:\n` +
+                         `-----------------\n` +
+                         `X isArray: ${errorDetails.X_isArray}\n` +
+                         `y isArray: ${errorDetails.y_isArray}\n` +
+                         `X[0] sample: ${JSON.stringify(errorDetails.X0)}\n` +
+                         `y[0] sample: ${JSON.stringify(errorDetails.y0)}\n` +
+                         `Stack: ${errorDetails.stack || 'Not available'}`;
+
     return { error: errorMessage, sqlQuery: query };
   }
 }
