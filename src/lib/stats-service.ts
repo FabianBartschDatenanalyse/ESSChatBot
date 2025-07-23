@@ -1,10 +1,10 @@
 'use server';
 
-import { linearRegression, linearRegressionLine } from 'simple-statistics';
+import * as dfd from 'danfojs';
 import { executeQuery } from './data-service';
 
 /**
- * Prepares the data and runs a linear regression.
+ * Prepares the data and runs a linear regression using Danfo.js.
  * @param target The dependent variable.
  * @param features An array of independent variables.
  * @param filters Optional key-value pairs to filter the data.
@@ -19,21 +19,23 @@ export async function runLinearRegression(
 
   // 1. Construct the SQL query to fetch the necessary data
   const allColumns = [target, ...features];
-  let query = `SELECT ${allColumns.join(', ')} FROM "ESS1"`;
+  let query = `SELECT ${allColumns.map(c => `"${c}"`).join(', ')} FROM "ESS1"`;
   
   const whereClauses: string[] = [];
 
   // Add filters from the request
   if (filters) {
     for (const [key, value] of Object.entries(filters)) {
-      whereClauses.push(`${key} = '${value}'`);
+      // Ensure values are properly quoted if they are strings
+      const filterValue = typeof value === 'string' ? `'${value}'` : value;
+      whereClauses.push(`"${key}" = ${filterValue}`);
     }
   }
 
   // Add filters to exclude missing values for all involved columns
+  // Assuming 77, 88, 99 are common missing value codes and stored as numbers/text
   for (const col of allColumns) {
-    // Assuming 77, 88, 99 are common missing value codes
-    whereClauses.push(`${col} NOT IN ('77', '88', '99')`);
+    whereClauses.push(`"${col}" NOT IN ('77', '88', '99', '777', '888', '999', '66', '55')`);
   }
   
   if (whereClauses.length > 0) {
@@ -51,39 +53,42 @@ export async function runLinearRegression(
     return { error: errorMsg };
   }
 
-  // 3. Prepare data for simple-statistics (it expects arrays of numbers)
-  // And it only supports simple linear regression (one feature) for now.
-  if (features.length !== 1) {
-      return { error: "Simple-statistics in this example only supports single linear regression (one feature)." };
-  }
-
-  const featureName = features[0];
-  const dataForRegression: [number, number][] = queryResult.data
-    .map(row => {
-      const x = parseFloat(row[featureName]);
-      const y = parseFloat(row[target]);
-      return !isNaN(x) && !isNaN(y) ? [x, y] : null;
-    })
-    .filter((v): v is [number, number] => v !== null);
-
-  if (dataForRegression.length < 2) {
-    return { error: 'Not enough valid data points to run a regression.' };
-  }
-
-  // 4. Run the regression
+  // 3. Prepare data using Danfo.js
   try {
-    const model = linearRegression(dataForRegression); // returns { m: slope, b: intercept }
-    const regressionLine = linearRegressionLine(model);
+    // Convert the array of objects into a Danfo DataFrame
+    let df = new dfd.DataFrame(queryResult.data);
+
+    // Ensure all columns are numeric
+    for (const col of allColumns) {
+        df = df.astype(col, 'float32');
+    }
     
-    // We don't get p-values or R-squared easily from simple-statistics,
-    // so we'll return the basic model for now.
+    // Drop rows with NaN values that might have resulted from casting
+    df.dropna({ inplace: true });
+
+    if (df.shape[0] < features.length + 1) {
+        return { error: 'Not enough valid data points to run a regression after cleaning.' };
+    }
+
+    const X = df.loc({ columns: features });
+    const y = df.loc({ columns: [target] });
+
+    // 4. Run the regression
+    const model = new dfd.LinearRegression();
+    await model.fit(X, y);
+    
+    // 5. Format and return the results
     const result = {
       coefficients: {
-        intercept: model.b,
-        [featureName]: model.m,
+        intercept: model.intercept,
+        ...features.reduce((obj, feat, i) => {
+          obj[feat] = model.coef[i];
+          return obj;
+        }, {} as Record<string, number>)
       },
-      n: dataForRegression.length,
-      note: "p-values and R-squared are not provided by this basic statistical tool."
+      r_squared: await model.score(X, y),
+      n: df.shape[0],
+      note: "p-values are not provided by the danfo.js library."
     };
     
     console.log('[stats-service] Regression successful:', result);
