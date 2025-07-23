@@ -70,15 +70,17 @@ You have access to two types of tools:
     - "What is the average age of respondents?"
     - "Compare trust in police between France and Spain."
 
-2.  \`statisticsTool\`: Use this for questions about relationships, influence, or predictions. It can perform statistical tests like linear regression. Examples:
+2.  \`statisticsTool\`: Use this for questions about relationships, influence, or predictions. This is the only tool that can perform statistical tests like linear regression. Examples:
     - "What is the influence of education on income?"
     - "Is there a relationship between age and political trust?"
     - "Perform a regression to see what predicts life satisfaction."
 
-Based on the user's question, the conversation history, and the provided context, decide which tool is most appropriate. If no tool is needed (e.g., for a greeting or general knowledge question), answer directly.
+Based on the user's question, the conversation history, and the provided context, you must decide which tool is most appropriate. If no tool is needed (e.g., for a greeting or general knowledge question), answer directly.
 
 When you get a result from a tool, analyze it and explain it to the user in a clear, easy-to-understand way.
 If a tool was used, you MUST also present the final SQL query that was used in a markdown code block.
+
+**CRITICAL: Use the provided "Relevant Codebook Context" to find the exact column names needed for your tools (e.g., 'trstprl' for trust in parliament).**
 
 **Relevant Codebook Context:**
 \`\`\`
@@ -90,7 +92,7 @@ ${retrievedContext}
       model: 'openai/gpt-4o',
       tools: [executeQueryTool, statisticsTool],
       system: systemPrompt,
-      messages: [...history, { role: 'user', content: [{ text: input.question }] }],
+      messages: [...history, { role: 'user', content: [{ text: input.question, custom: { retrievedContext } }] }],
       config: {
         maxToolRoundtrips: 5, // Prevent infinite loops
       },
