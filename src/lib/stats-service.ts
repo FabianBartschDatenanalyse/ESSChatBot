@@ -26,8 +26,12 @@ export async function runLinearRegression(
   // Add filters from the request
   if (filters) {
     for (const [key, value] of Object.entries(filters)) {
-      const filterValue = typeof value === 'string' ? `'${value}'` : value;
-      whereClauses.push(`"${key}" = ${filterValue}`);
+      if (Array.isArray(value)) {
+        whereClauses.push(`"${key}" IN (${value.map(v => `'${v}'`).join(',')})`);
+      } else {
+        const filterValue = typeof value === 'string' ? `'${value}'` : value;
+        whereClauses.push(`"${key}" = ${filterValue}`);
+      }
     }
   }
 
@@ -53,13 +57,15 @@ export async function runLinearRegression(
 
   console.log(`[stats-service] Successfully fetched ${queryResult.data.length} rows.`);
 
-  let df = new dfd.DataFrame(queryResult.data);
-  let X: any, y: any;
-  // 3. Prepare data using Danfo.js
+  // Hoist variables for debugging in catch block
+  let df: dfd.DataFrame = new dfd.DataFrame(queryResult.data);
+  let X: number[][] | undefined;
+  let y: number[] | undefined;
+
   try {
     console.log('[stats-service] DataFrame created. Shape before cleaning:', df.shape);
     
-    // Correctly convert all relevant columns to a numeric type.
+    // Convert all relevant columns to a numeric type.
     for (const col of allColumns) {
         const numericSeries = df[col].apply((val: any) => parseFloat(val), { axis: 0 });
         df.addColumn(col, numericSeries, { inplace: true });
@@ -78,9 +84,10 @@ export async function runLinearRegression(
     const X_df = df.loc({ columns: features });
     const y_sr = df[target] as dfd.Series;
     
-    X = X_df.values as number[][];
-    y = y_sr.values as number[];
-    
+    // Force conversion to native JS arrays to avoid internal errors
+    X = X_df.tensor.arraySync() as number[][];
+    y = y_sr.tensor.arraySync() as number[];
+
     // DEBUGGING LOGS
     console.log('[stats-service] X type:', typeof X, 'isArray:', Array.isArray(X), 'constructor:', X?.constructor?.name);
     console.log('[stats-service] y type:', typeof y, 'isArray:', Array.isArray(y), 'constructor:', y?.constructor?.name);
@@ -111,15 +118,14 @@ export async function runLinearRegression(
     return { data: result, sqlQuery: query };
 
   } catch (e: any) {
-    // Construct a detailed error message including the debug logs
-    const debugInfo = `
-      X type: ${typeof X}, isArray: ${Array.isArray(X)}, constructor: ${X?.constructor?.name}
-      y type: ${typeof y}, isArray: ${Array.isArray(y)}, constructor: ${y?.constructor?.name}
-      Sample X[0]: ${JSON.stringify(X?.[0])}
-      Sample y[0]: ${JSON.stringify(y?.[0])}
-    `;
-    const errorMessage = `An error occurred during regression calculation: ${e.message}. Debug Info: ${debugInfo}`;
-    console.error(`[stats-service] ${errorMessage}`, e);
+    const errorMessage = `An error occurred during regression calculation: ${e.message}`;
+    console.error(`[stats-service] ${errorMessage}`, {
+        err: e,
+        X_isArray: Array.isArray(X),
+        y_isArray: Array.isArray(y),
+        X_sample: X?.[0],
+        y_sample: y?.[0],
+    });
     return { error: errorMessage, sqlQuery: query };
   }
 }
