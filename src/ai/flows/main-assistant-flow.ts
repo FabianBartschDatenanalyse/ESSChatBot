@@ -16,6 +16,7 @@ import {Message as GenkitMessage, z} from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
 import { statisticsTool } from '../tools/statistics-tool';
 import { MessageSchema } from '@/lib/types';
+import { searchCodebook } from '@/lib/vector-search';
 
 // Omit context fields from the history schema to prevent token overflow.
 const HistoryMessageSchema = MessageSchema.omit({ sqlQuery: true, retrievedContext: true });
@@ -45,6 +46,14 @@ const mainAssistantFlow = ai.defineFlow(
   },
   async (input) => {
     console.log('[mainAssistantFlow] Received input:', JSON.stringify(input, null, 2));
+
+    // Step 1: Retrieve relevant context from the vector database.
+    const searchResults = await searchCodebook(input.question, 10);
+    const retrievedContext = searchResults
+        .map(result => `- ${result.content}`)
+        .join('\n');
+      
+    console.log(`[mainAssistantFlow] Retrieved context from vector DB:`, retrievedContext);
     
     // Convert Zod-validated history to Genkit's Message type, mapping 'assistant' to 'model'
     const history: GenkitMessage[] = (input.history || []).map(h => ({
@@ -66,10 +75,16 @@ You have access to two types of tools:
     - "Is there a relationship between age and political trust?"
     - "Perform a regression to see what predicts life satisfaction."
 
-Based on the user's question and the conversation history, decide which tool is most appropriate. If no tool is needed (e.g., for a greeting or general knowledge question), answer directly.
+Based on the user's question, the conversation history, and the provided context, decide which tool is most appropriate. If no tool is needed (e.g., for a greeting or general knowledge question), answer directly.
 
 When you get a result from a tool, analyze it and explain it to the user in a clear, easy-to-understand way.
-If a tool was used, you MUST also present the final SQL query that was used in a markdown code block.`;
+If a tool was used, you MUST also present the final SQL query that was used in a markdown code block.
+
+**Relevant Codebook Context:**
+\`\`\`
+${retrievedContext}
+\`\`\`
+`;
 
     const llmResponse = await ai.generate({
       model: 'openai/gpt-4o',
@@ -83,9 +98,7 @@ If a tool was used, you MUST also present the final SQL query that was used in a
 
     const answer = llmResponse.text;
     let sqlQuery: string | undefined;
-    let retrievedContext: string | undefined;
     
-    // Extract context from the last tool call response if it exists
     if (llmResponse.history) {
         const toolCallOutputs = llmResponse.history.filter(m => m.role === 'tool');
         if (toolCallOutputs.length > 0) {
@@ -95,7 +108,6 @@ If a tool was used, you MUST also present the final SQL query that was used in a
                 if (toolContent) {
                     const parsedContent = JSON.parse(toolContent);
                     sqlQuery = parsedContent.sqlQuery;
-                    retrievedContext = parsedContent.retrievedContext;
                 }
             } catch (e) {
                 console.warn("[mainAssistantFlow] Could not parse tool output to extract context.", e);
@@ -103,11 +115,10 @@ If a tool was used, you MUST also present the final SQL query that was used in a
         }
     }
 
-
     return {
       answer,
       sqlQuery,
-      retrievedContext,
+      retrievedContext: retrievedContext || undefined, // Always return the context we fetched
     };
   }
 );
