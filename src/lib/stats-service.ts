@@ -77,11 +77,17 @@ export async function runLinearRegression(
     const X_df = df.loc({ columns: features });
     const y_sr = df[target] as dfd.Series;
     
-    // Explicitly convert to plain JavaScript arrays to avoid internal type issues in Danfo.js
     const X = X_df.values as number[][];
     const y = y_sr.values as number[];
+    
+    console.log('[stats-service] Starting model fitting...');
+    
+    // DEBUGGING LOGS
+    console.log('X type:', typeof X, Array.isArray(X), X?.constructor?.name);
+    console.log('y type:', typeof y, Array.isArray(y), y?.constructor?.name);
+    console.log('Sample X[0]:', X[0]);
+    console.log('Sample y[0]:', y[0]);
 
-    console.log('[stats-service] Starting model fitting with explicit arrays...');
     // 4. Run the regression
     const model = new dfd.LinearRegression();
     await model.fit(X, y);
