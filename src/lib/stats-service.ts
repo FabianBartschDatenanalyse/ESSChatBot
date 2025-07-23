@@ -53,9 +53,10 @@ export async function runLinearRegression(
 
   console.log(`[stats-service] Successfully fetched ${queryResult.data.length} rows.`);
 
+  let df = new dfd.DataFrame(queryResult.data);
+  let X: any, y: any;
   // 3. Prepare data using Danfo.js
   try {
-    let df = new dfd.DataFrame(queryResult.data);
     console.log('[stats-service] DataFrame created. Shape before cleaning:', df.shape);
     
     // Correctly convert all relevant columns to a numeric type.
@@ -77,18 +78,17 @@ export async function runLinearRegression(
     const X_df = df.loc({ columns: features });
     const y_sr = df[target] as dfd.Series;
     
-    const X = X_df.values as number[][];
-    const y = y_sr.values as number[];
-    
-    console.log('[stats-service] Starting model fitting...');
+    X = X_df.values as number[][];
+    y = y_sr.values as number[];
     
     // DEBUGGING LOGS
-    console.log('X type:', typeof X, Array.isArray(X), X?.constructor?.name);
-    console.log('y type:', typeof y, Array.isArray(y), y?.constructor?.name);
-    console.log('Sample X[0]:', X[0]);
-    console.log('Sample y[0]:', y[0]);
+    console.log('[stats-service] X type:', typeof X, 'isArray:', Array.isArray(X), 'constructor:', X?.constructor?.name);
+    console.log('[stats-service] y type:', typeof y, 'isArray:', Array.isArray(y), 'constructor:', y?.constructor?.name);
+    console.log('[stats-service] Sample X[0]:', X?.[0]);
+    console.log('[stats-service] Sample y[0]:', y?.[0]);
 
     // 4. Run the regression
+    console.log('[stats-service] Starting model fitting...');
     const model = new dfd.LinearRegression();
     await model.fit(X, y);
     
@@ -111,7 +111,14 @@ export async function runLinearRegression(
     return { data: result, sqlQuery: query };
 
   } catch (e: any) {
-    const errorMessage = `An error occurred during regression calculation: ${e.message}`;
+    // Construct a detailed error message including the debug logs
+    const debugInfo = `
+      X type: ${typeof X}, isArray: ${Array.isArray(X)}, constructor: ${X?.constructor?.name}
+      y type: ${typeof y}, isArray: ${Array.isArray(y)}, constructor: ${y?.constructor?.name}
+      Sample X[0]: ${JSON.stringify(X?.[0])}
+      Sample y[0]: ${JSON.stringify(y?.[0])}
+    `;
+    const errorMessage = `An error occurred during regression calculation: ${e.message}. Debug Info: ${debugInfo}`;
     console.error(`[stats-service] ${errorMessage}`, e);
     return { error: errorMessage, sqlQuery: query };
   }

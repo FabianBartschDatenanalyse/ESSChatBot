@@ -65,20 +65,13 @@ const mainAssistantFlow = ai.defineFlow(
 Your goal is to answer the user's question as accurately and helpfully as possible.
 
 You have access to two types of tools:
-1.  \`executeQueryTool\`: Use this for questions that require fetching, counting, averaging, or directly viewing data. Examples:
-    - "Show me the number of participants from Germany."
-    - "What is the average age of respondents?"
-    - "Compare trust in police between France and Spain."
-
-2.  \`statisticsTool\`: Use this for questions about relationships, influence, or predictions. This is the only tool that can perform statistical tests like linear regression. Examples:
-    - "What is the influence of education on income?"
-    - "Is there a relationship between age and political trust?"
-    - "Perform a regression to see what predicts life satisfaction."
+1.  \`executeQueryTool\`: Use this for questions that require fetching, counting, averaging, or directly viewing data.
+2.  \`statisticsTool\`: Use this for questions about relationships, influence, or predictions, like linear regression.
 
 Based on the user's question, the conversation history, and the provided context, you must decide which tool is most appropriate. If no tool is needed (e.g., for a greeting or general knowledge question), answer directly.
 
 When you get a result from a tool, analyze it and explain it to the user in a clear, easy-to-understand way.
-If a tool returns an 'error' field, you MUST display that error message to the user verbatim.
+**If a tool returns an 'error' field, you MUST display that error message to the user verbatim and include all the details provided.**
 If a tool was used successfully, you MUST also present the final SQL query that was used in a markdown code block.
 
 **CRITICAL: Use the provided "Relevant Codebook Context" to find the exact column names needed for your tools (e.g., 'trstprl' for trust in parliament).**
@@ -93,7 +86,7 @@ ${retrievedContext}
       model: 'openai/gpt-4o',
       tools: [executeQueryTool, statisticsTool],
       system: systemPrompt,
-      messages: [...history, { role: 'user', content: [{ text: input.question, custom: { retrievedContext } }] }],
+      messages: [...history, { role: 'user', content: [{ text: input.question }] }],
       config: {
         maxToolRoundtrips: 5, // Prevent infinite loops
       },
