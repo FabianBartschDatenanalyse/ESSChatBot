@@ -25,13 +25,15 @@ const nextConfig: NextConfig = {
     ],
   },
    webpack: (config, { isServer }) => {
-    // Fix for 'supports-color' issue with @tensorflow/tfjs
+    // Fix for 'supports-color' issue with @tensorflow/tfjs and other packages.
     if (!isServer) {
       config.resolve.alias['supports-color'] = false;
+      // Provide a fallback for the problematic module on the client side.
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        '@mapbox/node-pre-gyp': false,
+      };
     }
-    
-    // Ensure node-pre-gyp is not bundled on the client
-    config.externals.push('@mapbox/node-pre-gyp');
 
     return config;
   },
