@@ -58,11 +58,11 @@ export async function runLinearRegression(
     let df = new dfd.DataFrame(queryResult.data);
     console.log('[stats-service] DataFrame created. Shape before cleaning:', df.shape);
     
-    // Ensure all columns are numeric. This is the corrected implementation.
+    // Correctly convert all relevant columns to a numeric type.
+    // The .apply() method with parseFloat is a robust way to handle this.
     for (const col of allColumns) {
-        // astype is called on a Series (column), not the DataFrame
-        const a_col = df[col].astype('float32');
-        df.addColumn(col, a_col, { inplace: true });
+        const numericSeries = df[col].apply((val: any) => parseFloat(val), { axis: 0 });
+        df.addColumn(col, numericSeries, { inplace: true });
     }
     
     // Drop rows with NaN, null, or undefined values that might have resulted from casting or were present in the data
