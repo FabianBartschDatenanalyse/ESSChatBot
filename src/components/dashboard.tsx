@@ -10,8 +10,6 @@ import Logo from '@/components/logo';
 import AskAiPanel from '@/components/ask-ai-panel';
 import HistoryPanel from '@/components/history-panel';
 import { Button } from './ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import SqlToolPanel from './sql-tool-panel';
 
 export type Message = {
   role: 'user' | 'assistant';
@@ -77,8 +75,8 @@ export default function Dashboard() {
             <SidebarSeparator />
              <SidebarGroup className='p-0'>
                 <SidebarGroupLabel className='px-4 pt-2 flex justify-between items-center'>
-                    <div className='flex items-center'>
-                        <History className='mr-2' />
+                    <div className='flex items-center gap-2'>
+                        <History className='h-4 w-4' />
                         History
                     </div>
                     <Button variant="ghost" size="sm" onClick={handleNewConversation}>
@@ -101,38 +99,27 @@ export default function Dashboard() {
           <SidebarTrigger />
         </header>
         <main className="flex-1 p-4 sm:p-6">
-          <Tabs defaultValue="assistant" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="assistant">AI Assistant</TabsTrigger>
-              <TabsTrigger value="sql">SQL Tool</TabsTrigger>
-            </TabsList>
-            <TabsContent value="assistant">
-              <Card>
-                <CardHeader>
-                  <div>
-                    <CardTitle className="font-headline">AI Assistant</CardTitle>
-                    <CardDescription>Get answers about the ESS dataset from our intelligent assistant.</CardDescription>
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle className="font-headline">AI Assistant</CardTitle>
+                <CardDescription>Get answers about the ESS dataset from our intelligent assistant.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {activeConversation ? (
+                <AskAiPanel
+                  key={activeConversation.id}
+                  conversation={activeConversation}
+                  onMessagesUpdate={updateConversation}
+                />
+              ) : (
+                  <div className="flex h-[65vh] flex-col items-center justify-center">
+                    <p className="text-muted-foreground">Select a conversation or start a new one.</p>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  {activeConversation ? (
-                    <AskAiPanel
-                      key={activeConversation.id}
-                      conversation={activeConversation}
-                      onMessagesUpdate={updateConversation}
-                    />
-                  ) : (
-                      <div className="flex h-[65vh] flex-col items-center justify-center">
-                        <p className="text-muted-foreground">Select a conversation or start a new one.</p>
-                      </div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-            <TabsContent value="sql">
-              <SqlToolPanel />
-            </TabsContent>
-          </Tabs>
+              )}
+            </CardContent>
+          </Card>
         </main>
       </SidebarInset>
     </SidebarProvider>
