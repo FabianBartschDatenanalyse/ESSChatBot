@@ -46,6 +46,8 @@ const mainAssistantFlow = ai.defineFlow(
   },
   async (input) => {
     console.log('[mainAssistantFlow] Received input:', JSON.stringify(input, null, 2));
+    let sqlQuery: string | undefined;
+    let retrievedContext: string | undefined;
 
     const llmResponse = await ai.generate({
         model: 'openai/gpt-4o',
@@ -75,32 +77,28 @@ Analyze the user's request and use the best tool for the job. When you get a res
 If a tool was used, you MUST also present the final SQL query that was used in a markdown code block.`,
     });
     
-    const toolOutputs = llmResponse.toolCalls.map(async (toolCall) => {
-        let toolOutput: any;
-        if (toolCall.tool === 'executeQueryTool') {
-            toolOutput = await executeQueryTool(toolCall.args as any);
-        } else if (toolCall.tool === 'statisticsTool') {
-            toolOutput = await statisticsTool(toolCall.args as any);
-        } else {
-            return {
-                tool: toolCall.tool,
-                callId: toolCall.id,
-                output: { error: `Unknown tool: ${toolCall.tool}` },
-            };
-        }
-        return {
-            tool: toolCall.tool,
-            callId: toolCall.id,
-            output: toolOutput,
-        };
-    });
+    const toolCalls = llmResponse.toolCalls;
+    if (toolCalls.length > 0) {
+      const toolCall = toolCalls[0]; // Assuming one tool call for now
+      const toolArgs = { ...toolCall.args, history: input.history } as any;
+      let toolOutput: any;
 
-    if (toolOutputs.length > 0) {
-        const finalLlmResponse = await ai.generate({
-            model: 'openai/gpt-4o',
-            prompt: `The user asked: "${input.question}". You used a tool and got this result: ${JSON.stringify(await Promise.all(toolOutputs), null, 2)}. Now, formulate a final, user-friendly answer based on the tool's output.`,
-        });
-        return { answer: finalLlmResponse.text };
+      if (toolCall.tool === 'executeQueryTool') {
+          toolOutput = await executeQueryTool(toolArgs);
+      } else if (toolCall.tool === 'statisticsTool') {
+          toolOutput = await statisticsTool(toolArgs);
+      } else {
+          toolOutput = { error: `Unknown tool: ${toolCall.tool}` };
+      }
+      
+      sqlQuery = toolOutput.sqlQuery;
+      retrievedContext = toolOutput.retrievedContext;
+
+      const finalLlmResponse = await ai.generate({
+          model: 'openai/gpt-4o',
+          prompt: `The user asked: "${input.question}". You used the '${toolCall.tool}' tool and got this result: ${JSON.stringify(toolOutput, null, 2)}. Now, formulate a final, user-friendly answer based on the tool's output. If there was an error, explain it clearly. If data was returned, summarize the findings.`,
+      });
+      return { answer: finalLlmResponse.text, sqlQuery, retrievedContext };
     }
 
 
@@ -111,3 +109,5 @@ If a tool was used, you MUST also present the final SQL query that was used in a
     };
   }
 );
+
+    

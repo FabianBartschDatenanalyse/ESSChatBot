@@ -50,8 +50,8 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
 
     try {
       // Pass the existing messages as history
-      const history = messages.map(({ role, content }) => ({ role, content }));
-      const result = await mainAssistant({ question: values.question, history });
+      const history = messages.map(({ role, content }) => ({ role, content: content as string, tool_calls: [] }));
+      const result = await mainAssistant({ question: values.question, history: history.map(m => ({role: m.role, content: m.content})) as any[]});
       
       const assistantMessage: Message = {
         role: 'assistant',
@@ -168,3 +168,5 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
     </div>
   );
 }
+
+    
