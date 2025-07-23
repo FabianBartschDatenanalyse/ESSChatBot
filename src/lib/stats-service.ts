@@ -26,7 +26,6 @@ export async function runLinearRegression(
   // Add filters from the request
   if (filters) {
     for (const [key, value] of Object.entries(filters)) {
-      // Ensure values are properly quoted if they are strings
       const filterValue = typeof value === 'string' ? `'${value}'` : value;
       whereClauses.push(`"${key}" = ${filterValue}`);
     }
@@ -52,20 +51,24 @@ export async function runLinearRegression(
     return { error: errorMsg, sqlQuery: query };
   }
 
+  console.log(`[stats-service] Successfully fetched ${queryResult.data.length} rows.`);
+
   // 3. Prepare data using Danfo.js
   try {
-    // Convert the array of objects into a Danfo DataFrame
     let df = new dfd.DataFrame(queryResult.data);
-
-    // Ensure all columns are numeric
+    console.log('[stats-service] DataFrame created. Shape before cleaning:', df.shape);
+    
+    // Ensure all columns are numeric, forcing errors for non-castable values to null
     for (const col of allColumns) {
         df.astype(col, 'float32', { inplace: true });
     }
     
     // Drop rows with NaN, null, or undefined values that might have resulted from casting or were present in the data
     df.dropna({ inplace: true });
+    console.log('[stats-service] DataFrame shape after cleaning (dropping nulls):', df.shape);
 
-    if (df.shape[0] < features.length + 2) { // Need more data points than features + intercept
+
+    if (df.shape[0] < features.length + 2) {
         const errorMsg = 'Not enough valid data points to run a regression after cleaning.';
         console.error(`[stats-service] ${errorMsg} (Rows: ${df.shape[0]}, Features: ${features.length})`);
         return { error: errorMsg, sqlQuery: query };
@@ -74,10 +77,12 @@ export async function runLinearRegression(
     const X = df.loc({ columns: features });
     const y = df.loc({ columns: [target] });
 
+    console.log('[stats-service] Starting model fitting...');
     // 4. Run the regression
     const model = new dfd.LinearRegression();
     await model.fit(X, y);
     
+    console.log('[stats-service] Model fitting successful.');
     // 5. Format and return the results
     const result = {
       coefficients: {
@@ -92,11 +97,12 @@ export async function runLinearRegression(
       note: "p-values are not provided by the underlying `danfo.js` library."
     };
     
-    console.log('[stats-service] Regression successful:', result);
+    console.log('[stats-service] Regression calculation successful:', result);
     return { data: result, sqlQuery: query };
 
   } catch (e: any) {
-    console.error(`[stats-service] An error occurred during regression calculation: ${e.message}`);
-    return { error: `Calculation failed: ${e.message}`, sqlQuery: query };
+    const errorMessage = `An error occurred during regression calculation: ${e.message}`;
+    console.error(`[stats-service] ${errorMessage}`, e);
+    return { error: errorMessage, sqlQuery: query };
   }
 }
