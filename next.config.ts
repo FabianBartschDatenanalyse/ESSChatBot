@@ -25,13 +25,16 @@ const nextConfig: NextConfig = {
     ],
   },
    webpack: (config, { isServer }) => {
-    // Fix for 'supports-color' issue with @tensorflow/tfjs and other packages.
+    // Fix for issues with Node.js-specific modules in the browser.
     if (!isServer) {
-      config.resolve.alias['supports-color'] = false;
-      // Provide a fallback for the problematic module on the client side.
+      // Provide fallbacks for Node.js-specific modules that are not available in the browser.
       config.resolve.fallback = {
         ...config.resolve.fallback,
-        '@mapbox/node-pre-gyp': false,
+        '@mapbox/node-pre-gyp': false, // Specifically exclude this problematic module
+        'supports-color': false, // Another common issue
+        'fs': false,
+        'path': false,
+        'os': false,
       };
     }
 
