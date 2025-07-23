@@ -68,7 +68,7 @@ export default function Dashboard() {
         <SidebarContent className="p-0 flex flex-col">
             <SidebarHeader className='p-4 border-b border-sidebar-border flex justify-between items-center'>
               <div className="flex items-center gap-3">
-                <Logo className="h-10 w-10 text-primary" />
+                <Logo className="h-10 text-primary" />
                 <div className="flex flex-col">
                   <h2 className="font-headline text-xl font-semibold">ESS Navigator</h2>
                   <p className="text-xs text-muted-foreground -mt-1">AI Data Explorer</p>
