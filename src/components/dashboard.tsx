@@ -71,7 +71,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-3">
                 <Logo className="h-10 text-primary" />
                 <div className="flex flex-col">
-                  <h2 className="font-headline text-xl font-semibold">ESS Navigator</h2>
+                  <h2 className="font-headline text-lg font-semibold">ESS Navigator</h2>
                   <p className="text-xs text-muted-foreground -mt-1">AI Data Explorer</p>
                 </div>
               </div>
