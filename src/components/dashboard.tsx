@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -52,7 +53,7 @@ export default function Dashboard() {
     setConversations(prev =>
       prev.map(conv => {
         if (conv.id === conversationId) {
-          const newTitle = updatedMessages.length > 0 ? updatedMessages[0].content : 'New Conversation';
+          const newTitle = updatedMessages.length > 0 ? updatedMessages[0].content.substring(0, 40) + '...' : 'New Conversation';
           return { ...conv, messages: updatedMessages, title: newTitle };
         }
         return conv;
@@ -66,7 +67,7 @@ export default function Dashboard() {
     <SidebarProvider>
       <Sidebar>
         <SidebarContent className="p-0 flex flex-col">
-            <SidebarHeader className='p-4 border-b border-sidebar-border flex justify-between items-center'>
+            <SidebarHeader className='p-4 border-b border-sidebar-border'>
               <div className="flex items-center gap-3">
                 <Logo className="h-10 text-primary" />
                 <div className="flex flex-col">
@@ -74,16 +75,18 @@ export default function Dashboard() {
                   <p className="text-xs text-muted-foreground -mt-1">AI Data Explorer</p>
                 </div>
               </div>
-               <Button variant="outline" size="sm" onClick={handleNewConversation}>
-                  <PlusCircle className="mr-2 h-4 w-4" />
-                  New
-                </Button>
             </SidebarHeader>
             <SidebarSeparator />
              <SidebarGroup className='p-0'>
-                <SidebarGroupLabel className='px-4 pt-2'>
-                    <History className='mr-2' />
-                    History
+                <SidebarGroupLabel className='px-4 pt-2 flex justify-between items-center'>
+                    <div className='flex items-center'>
+                        <History className='mr-2' />
+                        History
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={handleNewConversation}>
+                        <PlusCircle className="mr-2 h-4 w-4" />
+                        New
+                    </Button>
                 </SidebarGroupLabel>
                 <div className="p-4">
                   <HistoryPanel 
