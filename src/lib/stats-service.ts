@@ -59,16 +59,14 @@ export async function runLinearRegression(
     console.log('[stats-service] DataFrame created. Shape before cleaning:', df.shape);
     
     // Correctly convert all relevant columns to a numeric type.
-    // The .apply() method with parseFloat is a robust way to handle this.
     for (const col of allColumns) {
         const numericSeries = df[col].apply((val: any) => parseFloat(val), { axis: 0 });
         df.addColumn(col, numericSeries, { inplace: true });
     }
     
-    // Drop rows with NaN, null, or undefined values that might have resulted from casting or were present in the data
+    // Drop rows with NaN, null, or undefined values
     df = df.dropNa({ axis: 0 });
     console.log('[stats-service] DataFrame shape after cleaning (dropping nulls):', df.shape);
-
 
     if (df.shape[0] < features.length + 2) {
         const errorMsg = `Not enough valid data points to run a regression after cleaning. (Rows: ${df.shape[0]}, Features: ${features.length + 1})`;
@@ -76,15 +74,16 @@ export async function runLinearRegression(
         return { error: errorMsg, sqlQuery: query };
     }
 
-    const X = df.loc({ columns: features });
-    // This is the fix: y must be a 1-D Series, not a DataFrame.
-    // df[target] returns a Series. df.loc({ columns: [target] }) returns a DataFrame.
-    const y = df[target];
+    const X_df = df.loc({ columns: features });
+    const y_sr = df[target] as dfd.Series;
+    
+    const X = X_df.values as number[][];
+    const y = y_sr.values as number[];
 
-    console.log('[stats-service] Starting model fitting...');
+    console.log('[stats-service] Starting model fitting with explicit arrays...');
     // 4. Run the regression
     const model = new dfd.LinearRegression();
-    await model.fit(X, y as dfd.Series);
+    await model.fit(X, y);
     
     console.log('[stats-service] Model fitting successful.');
     // 5. Format and return the results
@@ -96,7 +95,7 @@ export async function runLinearRegression(
           return obj;
         }, {} as Record<string, number>)
       },
-      r_squared: await model.score(X, y as dfd.Series),
+      r_squared: await model.score(X, y),
       n_observations: df.shape[0],
       note: "p-values are not provided by the underlying `danfo.js` library."
     };
