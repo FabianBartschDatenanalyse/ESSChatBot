@@ -58,9 +58,11 @@ export async function runLinearRegression(
     let df = new dfd.DataFrame(queryResult.data);
     console.log('[stats-service] DataFrame created. Shape before cleaning:', df.shape);
     
-    // Ensure all columns are numeric, forcing errors for non-castable values to null
+    // Ensure all columns are numeric. This is the corrected implementation.
     for (const col of allColumns) {
-        df.astype(col, 'float32', { inplace: true });
+        // astype is called on a Series (column), not the DataFrame
+        const a_col = df[col].astype('float32');
+        df.addColumn(col, a_col, { inplace: true });
     }
     
     // Drop rows with NaN, null, or undefined values that might have resulted from casting or were present in the data
@@ -69,8 +71,8 @@ export async function runLinearRegression(
 
 
     if (df.shape[0] < features.length + 2) {
-        const errorMsg = 'Not enough valid data points to run a regression after cleaning.';
-        console.error(`[stats-service] ${errorMsg} (Rows: ${df.shape[0]}, Features: ${features.length})`);
+        const errorMsg = `Not enough valid data points to run a regression after cleaning. (Rows: ${df.shape[0]}, Features: ${features.length + 1})`;
+        console.error(`[stats-service] ${errorMsg}`);
         return { error: errorMsg, sqlQuery: query };
     }
 
