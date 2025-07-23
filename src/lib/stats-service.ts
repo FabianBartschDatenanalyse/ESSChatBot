@@ -1,6 +1,6 @@
 'use server';
 
-import * as dfd from 'danfojs-node';
+import * as dfd from 'danfojs';
 import * as tf from '@tensorflow/tfjs';
 import { executeQuery } from './data-service';
 
@@ -82,9 +82,12 @@ export async function runLinearRegression(
     df = new dfd.DataFrame(queryData);
     
     // Cast all relevant columns to float32 for TensorFlow
-    for (const col of allColumns) {
-      df.addColumn(col, df[col].apply((val: any) => parseFloat(val)), { inplace: true });
-    }
+    const dtypes = allColumns.reduce((acc, col) => {
+        acc[col] = 'float32';
+        return acc;
+    }, {} as {[key: string]: string});
+
+    df = df.astype(dtypes) as dfd.DataFrame;
     
     df = df.dropNa({ axis: 0 });
     
@@ -102,26 +105,9 @@ export async function runLinearRegression(
     X = X_df.values as number[][];
     y = y_sr.values as number[];
     
-    // Check if conversion is needed (e.g., from TypedArray)
-    if (!Array.isArray(y)) {
-        y = Array.from(y);
-    }
-    if (!Array.isArray(X) || (X.length > 0 && !Array.isArray(X[0]))) {
-         X = (X_df.values as any[]).map(row => Array.isArray(row) ? Array.from(row) : [row]);
-    }
-
-
     const X_tensor = tf.tensor2d(X);
     const y_tensor = tf.tensor2d(y, [y.length, 1]);
     
-    console.log('[stats-service] X/y checks:', {
-      X_isArray: Array.isArray(X),
-      y_isArray: Array.isArray(y),
-      X0_isArray: Array.isArray(X?.[0]),
-      X_sample_row: X?.[0],
-      y_sample_value: y?.[0],
-    });
-
     // ------------------- 5. Build and Train Model -------------------
     const model = tf.sequential();
     model.add(tf.layers.dense({ units: 1, inputShape: [features.length] }));
