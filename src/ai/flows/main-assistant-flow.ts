@@ -14,7 +14,7 @@
 import {ai} from '@/ai/genkit';
 import {Message, z} from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
-import { searchCodebook } from '@/lib/vector-search';
+import { statisticsTool } from '../tools/statistics-tool';
 
 const MessageSchema = z.object({
     role: z.enum(['user', 'assistant', 'tool']),
@@ -38,12 +38,6 @@ export async function mainAssistant(input: MainAssistantInput): Promise<MainAssi
   return mainAssistantFlow(input);
 }
 
-// Define a schema for the question reformulation
-const ReformulatedQuestionSchema = z.object({
-    reformulatedQuestion: z.string().describe("The reformulated, self-contained question for the tool."),
-    requiresTool: z.boolean().describe("Whether the question requires using the database tool."),
-});
-
 const mainAssistantFlow = ai.defineFlow(
   {
     name: 'mainAssistantFlow',
@@ -53,76 +47,67 @@ const mainAssistantFlow = ai.defineFlow(
   async (input) => {
     console.log('[mainAssistantFlow] Received input:', JSON.stringify(input, null, 2));
 
-    // Step 1: Decide if a tool is needed and reformulate the question if necessary.
-    const reformulationPrompt = `You are an expert at processing conversations. Your task is to determine if the user's latest question requires database access and to reformulate it into a self-contained question if it's a follow-up.
-
-    Conversation History:
-    ${(input.history || []).map(h => `${h.role}: ${h.content}`).join('\n')}
-
-    User's Latest Question: "${input.question}"
-
-    Analyze the latest question in the context of the history.
-    - If the question is a follow-up (e.g., "what about in percentages?", "and for Germany?"), rephrase it into a complete, standalone question that can be understood without the chat history (e.g., "What is the percentage of people per country who think politics is complicated?").
-    - If the question is already self-contained, use it as is.
-    - If the question is a general greeting, a thank you, or something that doesn't require the database, set 'requiresTool' to false and keep the question as is.
-
-    Based on this, provide the reformulated question and whether a tool is required.`;
-
-    const reformulationResponse = await ai.generate({
+    const llmResponse = await ai.generate({
         model: 'openai/gpt-4o',
-        prompt: reformulationPrompt,
-        output: {
-            schema: ReformulatedQuestionSchema,
-        },
+        tools: [executeQueryTool, statisticsTool],
+        prompt: `You are an expert data analyst and assistant for the European Social Survey (ESS).
+Your goal is to answer the user's question as accurately and helpfully as possible.
+
+You have access to two types of tools:
+1.  \`executeQueryTool\`: Use this for questions that require fetching, counting, averaging, or directly viewing data. Examples:
+    - "Show me the number of participants from Germany."
+    - "What is the average age of respondents?"
+    - "Compare trust in police between France and Spain."
+
+2.  \`statisticsTool\`: Use this for questions about relationships, influence, or predictions. It can perform statistical tests like linear regression. Examples:
+    - "What is the influence of education on income?"
+    - "Is there a relationship between age and political trust?"
+    - "Perform a regression to see what predicts life satisfaction."
+
+Based on the user's question and the conversation history, decide which tool is most appropriate. If no tool is needed (e.g., for a greeting or general knowledge question), answer directly.
+
+Conversation History:
+${(input.history || []).map(h => `${h.role}: ${h.content}`).join('\n')}
+
+User's Latest Question: "${input.question}"
+
+Analyze the user's request and use the best tool for the job. When you get a result from a tool, analyze it and explain it to the user in a clear, easy-to-understand way.
+If a tool was used, you MUST also present the final SQL query that was used in a markdown code block.`,
+    });
+    
+    const toolOutputs = llmResponse.toolCalls.map(async (toolCall) => {
+        let toolOutput: any;
+        if (toolCall.tool === 'executeQueryTool') {
+            toolOutput = await executeQueryTool(toolCall.args as any);
+        } else if (toolCall.tool === 'statisticsTool') {
+            toolOutput = await statisticsTool(toolCall.args as any);
+        } else {
+            return {
+                tool: toolCall.tool,
+                callId: toolCall.id,
+                output: { error: `Unknown tool: ${toolCall.tool}` },
+            };
+        }
+        return {
+            tool: toolCall.tool,
+            callId: toolCall.id,
+            output: toolOutput,
+        };
     });
 
-    const { reformulatedQuestion, requiresTool } = reformulationResponse.output!;
-    console.log('[mainAssistantFlow] Reformulation result:', JSON.stringify({ reformulatedQuestion, requiresTool }, null, 2));
-
-    if (!requiresTool) {
-        // If no tool is needed, generate a direct answer.
-        console.log('[mainAssistantFlow] No tool required. Generating a direct answer.');
-        const directAnswerResponse = await ai.generate({
+    if (toolOutputs.length > 0) {
+        const finalLlmResponse = await ai.generate({
             model: 'openai/gpt-4o',
-            prompt: `Answer the following user question: "${reformulatedQuestion}"`,
+            prompt: `The user asked: "${input.question}". You used a tool and got this result: ${JSON.stringify(await Promise.all(toolOutputs), null, 2)}. Now, formulate a final, user-friendly answer based on the tool's output.`,
         });
-        return { answer: directAnswerResponse.text };
+        return { answer: finalLlmResponse.text };
     }
 
-    // Step 2: Use the reformulated question with the executeQueryTool.
-    console.log(`[mainAssistantFlow] Tool required. Executing query for: "${reformulatedQuestion}"`);
-    const toolOutput = await executeQueryTool(
-        { nlQuestion: reformulatedQuestion, history: input.history }
-    );
+
+    const answer = llmResponse.text;
     
-    console.log('[mainAssistantFlow] Tool output received:', JSON.stringify(toolOutput, null, 2));
-
-    const finalPrompt = `You are an expert data analyst and assistant for the European Social Survey (ESS).
-    You have just executed a query to answer the user's question.
-
-    User's original question: "${input.question}"
-    The reformulated question used for the query: "${reformulatedQuestion}"
-    
-    Here is the result from the database tool:
-    ${JSON.stringify(toolOutput, null, 2)}
-
-    Now, formulate a final, user-friendly answer based on the tool's output.
-    - If the tool returned data, analyze and explain it clearly.
-    - If the tool returned an error, state the error message clearly to the user.
-    - Do NOT include the SQL query or the retrieved context in your final response.
-    - Your entire response should be just the natural language answer.`;
-    
-    const finalLlmResponse = await ai.generate({
-        model: 'openai/gpt-4o',
-        prompt: finalPrompt,
-    });
-
-    const answer = finalLlmResponse.text;
-
     return {
         answer,
-        sqlQuery: toolOutput.sqlQuery,
-        retrievedContext: toolOutput.retrievedContext,
     };
   }
 );
