@@ -12,7 +12,7 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {Message, z} from 'zod';
+import {Message as GenkitMessage, z} from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
 import { statisticsTool } from '../tools/statistics-tool';
 
@@ -46,13 +46,14 @@ const mainAssistantFlow = ai.defineFlow(
   },
   async (input) => {
     console.log('[mainAssistantFlow] Received input:', JSON.stringify(input, null, 2));
-    let sqlQuery: string | undefined;
-    let retrievedContext: string | undefined;
+    
+    // Convert Zod-validated history to Genkit's Message type
+    const history: GenkitMessage[] = (input.history || []).map(h => ({
+      role: h.role,
+      content: [{ text: h.content }],
+    }));
 
-    const llmResponse = await ai.generate({
-        model: 'openai/gpt-4o',
-        tools: [executeQueryTool, statisticsTool],
-        prompt: `You are an expert data analyst and assistant for the European Social Survey (ESS).
+    const systemPrompt = `You are an expert data analyst and assistant for the European Social Survey (ESS).
 Your goal is to answer the user's question as accurately and helpfully as possible.
 
 You have access to two types of tools:
@@ -68,46 +69,43 @@ You have access to two types of tools:
 
 Based on the user's question and the conversation history, decide which tool is most appropriate. If no tool is needed (e.g., for a greeting or general knowledge question), answer directly.
 
-Conversation History:
-${(input.history || []).map(h => `${h.role}: ${h.content}`).join('\n')}
+When you get a result from a tool, analyze it and explain it to the user in a clear, easy-to-understand way.
+If a tool was used, you MUST also present the final SQL query that was used in a markdown code block.`;
 
-User's Latest Question: "${input.question}"
-
-Analyze the user's request and use the best tool for the job. When you get a result from a tool, analyze it and explain it to the user in a clear, easy-to-understand way.
-If a tool was used, you MUST also present the final SQL query that was used in a markdown code block.`,
+    const llmResponse = await ai.generate({
+      model: 'openai/gpt-4o',
+      tools: [executeQueryTool, statisticsTool],
+      system: systemPrompt,
+      history: [...history, { role: 'user', content: [{ text: input.question }] }],
+      config: {
+        maxToolRoundtrips: 5, // Prevent infinite loops
+      },
     });
-    
-    const toolCalls = llmResponse.toolCalls;
-    if (toolCalls.length > 0) {
-      const toolCall = toolCalls[0]; // Assuming one tool call for now
-      const toolArgs = { ...toolCall.args, history: input.history } as any;
-      let toolOutput: any;
-
-      if (toolCall.tool === 'executeQueryTool') {
-          toolOutput = await executeQueryTool(toolArgs);
-      } else if (toolCall.tool === 'statisticsTool') {
-          toolOutput = await statisticsTool(toolArgs);
-      } else {
-          toolOutput = { error: `Unknown tool: ${toolCall.tool}` };
-      }
-      
-      sqlQuery = toolOutput.sqlQuery;
-      retrievedContext = toolOutput.retrievedContext;
-
-      const finalLlmResponse = await ai.generate({
-          model: 'openai/gpt-4o',
-          prompt: `The user asked: "${input.question}". You used the '${toolCall.tool}' tool and got this result: ${JSON.stringify(toolOutput, null, 2)}. Now, formulate a final, user-friendly answer based on the tool's output. If there was an error, explain it clearly. If data was returned, summarize the findings.`,
-      });
-      return { answer: finalLlmResponse.text, sqlQuery, retrievedContext };
-    }
-
 
     const answer = llmResponse.text;
+    let sqlQuery: string | undefined;
+    let retrievedContext: string | undefined;
     
+    // Extract context from the last tool call response if it exists
+    const toolCallOutputs = llmResponse.history.filter(m => m.role === 'tool');
+    if (toolCallOutputs.length > 0) {
+        const lastToolOutput = toolCallOutputs[toolCallOutputs.length - 1];
+        try {
+            const toolContent = lastToolOutput.content[0].text;
+            if (toolContent) {
+                const parsedContent = JSON.parse(toolContent);
+                sqlQuery = parsedContent.sqlQuery;
+                retrievedContext = parsedContent.retrievedContext;
+            }
+        } catch (e) {
+            console.warn("[mainAssistantFlow] Could not parse tool output to extract context.", e);
+        }
+    }
+
     return {
-        answer,
+      answer,
+      sqlQuery,
+      retrievedContext,
     };
   }
 );
-
-    
