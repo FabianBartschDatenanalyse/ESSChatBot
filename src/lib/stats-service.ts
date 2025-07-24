@@ -94,12 +94,10 @@ export async function runLinearRegression(
 
     const toNum = (v: any): number => (v === null || v === '' || v === undefined || Number.isNaN(Number(v))) ? NaN : Number(v);
     
-    const combinedData = queryData.map(row => {
-        const featureValues = features.map(f => toNum(row[f]));
-        const targetValue = toNum(row[target]);
-        return [...featureValues, targetValue];
-    });
-
+    const X_vals = queryData.map(row => features.map(f => toNum(row[f])));
+    const y_vals = queryData.map(row => toNum(row[target]));
+    
+    const combinedData = X_vals.map((row, i) => [...row, y_vals[i]]);
     const filteredData = combinedData.filter(row => !row.some(Number.isNaN));
     
     if (filteredData.length < features.length + 2) {
@@ -122,14 +120,14 @@ export async function runLinearRegression(
     await model.fit(X, y, { epochs: 100, verbose: 0 });
 
     const [W, b] = model.getWeights();
-    const coefficientsData = W.arraySync() as number[][];
-    const interceptData = b.arraySync() as number[];
+    const coefficientsArray = await W.array() as number[][];
+    const interceptArray = await b.array() as number[];
 
     const coefficients: Record<string, number> & { intercept: number } = {
-      intercept: interceptData[0] ?? 0,
+      intercept: interceptArray[0] ?? 0,
     };
     features.forEach((f, i) => {
-      coefficients[f] = coefficientsData[i][0] ?? 0;
+      coefficients[f] = coefficientsArray[i][0] ?? 0;
     });
 
     const predictions = model.predict(X) as tf.Tensor;
@@ -137,7 +135,7 @@ export async function runLinearRegression(
     const totalSumOfSquares = y.sub(meanY).square().sum();
     const residualSumOfSquares = y.sub(predictions).square().sum();
     const r2Tensor = tf.scalar(1).sub(residualSumOfSquares.div(totalSumOfSquares));
-    let r2 = r2Tensor.arraySync() as number;
+    let r2 = await r2Tensor.array() as number;
 
     if (!Number.isFinite(r2)) {
       r2 = null as any;
@@ -157,8 +155,9 @@ export async function runLinearRegression(
   } catch (e: any) {
     // Keep it tiny & serializable
     console.error("[stats-service] CATCH BLOCK ERROR:", e);
+    const err = e as Error;
     return jsonSafe({
-      error: `Regression analysis failed: ${e?.message ?? 'Unknown error'}.`,
+      error: `Regression analysis failed: ${err?.message ?? 'Unknown error'}.`,
       sqlQuery: typeof query !== 'undefined' ? query : undefined,
     });
   }
