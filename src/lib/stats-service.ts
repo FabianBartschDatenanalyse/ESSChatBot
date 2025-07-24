@@ -60,11 +60,11 @@ export async function runLinearRegression(
   
     // Filter out common missing value codes for all columns involved
     for (const col of allColumns) {
-       // A more robust filter to only include explicit valid values for categorical vars if known
+       // For gender, explicitly select valid categories.
       if (col === 'gndr') {
           whereClauses.push(`"${col}" IN ('1', '2')`);
       } else {
-          // General exclusion for numeric-like columns
+          // General exclusion for other numeric-like columns
           whereClauses.push(`"${col}" NOT IN ('7','8','9','66','77','88','99','55', '777', '888', '999')`);
       }
     }
@@ -84,18 +84,17 @@ export async function runLinearRegression(
     }
     
     // Validate that all requested columns were returned
-    const returnedCols = Object.keys(queryData[0]);
+    const returnedCols = Object.keys(queryData[0] || {});
     const missingCols = allColumns.filter(c => !returnedCols.includes(c));
     if (missingCols.length > 0) {
         return jsonSafe({
-            error: `The database did not return the expected columns. Missing: ${missingCols.join(', ')}.`,
+            error: `These columns are not in the DataFrame: ${missingCols.join(', ')}. Returned columns were: ${returnedCols.join(', ')}`,
             sqlQuery: query
         });
     }
 
-    // Manual data processing without Danfo.js
     const toNum = (v: any): number => (v === null || v === '' || v === undefined || Number.isNaN(Number(v))) ? NaN : Number(v);
-
+    
     const combinedData = queryData.map(row => {
         const featureValues = features.map(f => toNum(row[f]));
         const targetValue = toNum(row[target]);
@@ -124,14 +123,16 @@ export async function runLinearRegression(
     await model.fit(X, y, { epochs: 100, verbose: 0 });
 
     const [W, b] = model.getWeights();
-    const coefficientsArray = await W.array() as number[][];
-    const interceptArray = await b.array() as number[];
+    
+    // Use .dataSync() to reliably get the values from the tensors
+    const coefficientsData = W.dataSync();
+    const interceptData = b.dataSync();
 
     const coefficients: Record<string, number> & { intercept: number } = {
-      intercept: interceptArray[0],
+      intercept: interceptData[0] ?? 0,
     };
     features.forEach((f, i) => {
-      coefficients[f] = coefficientsArray[i][0];
+      coefficients[f] = coefficientsData[i] ?? 0;
     });
 
     const predictions = model.predict(X) as tf.Tensor;
@@ -139,7 +140,7 @@ export async function runLinearRegression(
     const totalSumOfSquares = y.sub(meanY).square().sum();
     const residualSumOfSquares = y.sub(predictions).square().sum();
     const r2Tensor = tf.scalar(1).sub(residualSumOfSquares.div(totalSumOfSquares));
-    let r2 = await r2Tensor.array() as number;
+    let r2 = r2Tensor.dataSync()[0];
 
     if (!Number.isFinite(r2)) {
       r2 = null as any;
@@ -154,12 +155,15 @@ export async function runLinearRegression(
     
     tf.dispose([X, y, W, b, predictions, meanY, totalSumOfSquares, residualSumOfSquares, r2Tensor]);
     
+    console.log("[stats-service] Final result object:", JSON.stringify(result, null, 2));
+
     return jsonSafe({ data: result, sqlQuery: query });
 
   } catch (e: any) {
     // Keep it tiny & serializable
+    console.error("[stats-service] CATCH BLOCK ERROR:", e);
     return {
-      error: `Regression analysis failed: ${e?.message ?? 'Unknown error'}`,
+      error: `Regression analysis failed: ${e?.message ?? 'Unknown error'}. Stack: ${e?.stack ?? 'N/A'}`,
       sqlQuery: typeof query !== 'undefined' ? query : undefined,
     };
   }
