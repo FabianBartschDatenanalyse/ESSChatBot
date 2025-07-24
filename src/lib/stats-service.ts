@@ -1,4 +1,3 @@
-
 'use server';
 
 import * as dfd from 'danfojs';
@@ -51,7 +50,7 @@ export async function runLinearRegression(
   
   // Filter out common missing value codes
   for (const col of allColumns) {
-    whereClauses.push(`"${col}" NOT IN ('7','8','9','66','77','88','99','55','777','888','999')`);
+    whereClauses.push(`"${col}" NOT IN ('7','8','9','66','77','88','99','55', '777', '888', '999')`);
   }
 
   if (whereClauses.length > 0) {
@@ -76,7 +75,7 @@ export async function runLinearRegression(
     
     // ---- Load and Prepare Data with Danfo.js ----
     df = new dfd.DataFrame(queryData);
-    df = df.dropNa({ axis: 0 });
+    df = df.dropNa({ axis: 0 }); // Drop rows with any NaN values
     
     console.log('[stats-service] DataFrame shape after cleaning:', df.shape);
 
@@ -84,14 +83,13 @@ export async function runLinearRegression(
       return { error: `Not enough valid rows after cleaning (rows=${df.shape[0]}) to perform regression.`, sqlQuery: query };
     }
 
+    // --- Select relevant columns and convert to float32 for TensorFlow ---
+    const dataForRegression = df.loc({ columns: allColumns });
+    const typedData = dataForRegression.asType(allColumns, 'float32');
+
     // ---- Create Tensors from DataFrame ----
-    const X_df = df.loc({ columns: features }).asType('float32') as dfd.DataFrame;
-    const y_sr = df[target] as dfd.Series;
-    // Explicitly create a new DataFrame for the target with the correct column name
-    const y_df = new dfd.DataFrame({[target]: y_sr.values}, {columns: [target]}).asType('float32') as dfd.DataFrame;
-    
-    X = X_df.tensor as tf.Tensor;
-    y = y_df.tensor as tf.Tensor;
+    X = (typedData.loc({ columns: features }).tensor as tf.Tensor);
+    y = (typedData.loc({ columns: [target] }).tensor as tf.Tensor);
     
     // ---- Build and Train Model with TensorFlow.js ----
     const model = tf.sequential();
