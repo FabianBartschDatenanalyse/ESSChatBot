@@ -49,7 +49,12 @@ export async function runLinearRegression(
   
   // Filter out common missing value codes for all columns involved
   for (const col of allColumns) {
-    whereClauses.push(`"${col}" NOT IN ('7','8','9','66','77','88','99','55', '777', '888', '999')`);
+      // More robust filtering: include only valid numeric ranges or specific valid codes
+      if (col === 'gndr') {
+          whereClauses.push(`"${col}" IN ('1', '2')`);
+      } else {
+          whereClauses.push(`"${col}" NOT IN ('7','8','9','66','77','88','99','55', '777', '888', '999')`);
+      }
   }
 
   if (whereClauses.length > 0) {
@@ -83,9 +88,9 @@ export async function runLinearRegression(
     }
     
     // Manually convert to numbers and filter out rows with any NaNs
-    const toNum = (v: any): number => (v === null || v === '' || v === undefined ? NaN : Number(v));
+    const toNum = (v: any): number => (v === null || v === '' || v === undefined || isNaN(v as any)) ? NaN : Number(v);
 
-    const X_vals: number[][] = (df.loc({ columns: features }).values as any[][]).map((r: any[]) => r.map(toNum));
+    const X_vals: (number[])[] = (df.loc({ columns: features }).values as any[][]).map((r: any[]) => r.map(toNum));
     const y_vals: number[] = (df.loc({ columns: [target] }).values as any[][]).map((r: any[]) => toNum(r[0]));
 
     // Combine features and target to filter rows with NaNs synchronously
