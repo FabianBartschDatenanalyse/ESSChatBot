@@ -59,11 +59,9 @@ export async function runLinearRegression(
   
     // Filter out common missing value codes for all columns involved
     for (const col of allColumns) {
-       // For gender, explicitly select valid categories.
       if (col === 'gndr') {
           whereClauses.push(`"gndr" IN ('1', '2')`);
       } else {
-          // General exclusion for other numeric-like columns
           whereClauses.push(`"${col}" NOT IN ('7','8','9','66','77','88','99','55', '777', '888', '999')`);
       }
     }
@@ -92,14 +90,21 @@ export async function runLinearRegression(
         });
     }
 
+    // Convert data to numeric, handling potential non-numeric values gracefully
     const toNum = (v: any): number => (v === null || v === '' || v === undefined || Number.isNaN(Number(v))) ? NaN : Number(v);
     
-    const X_vals = queryData.map(row => features.map(f => toNum(row[f])));
-    const y_vals = queryData.map(row => toNum(row[target]));
-    
-    const combinedData = X_vals.map((row, i) => [...row, y_vals[i]]);
-    const filteredData = combinedData.filter(row => !row.some(Number.isNaN));
-    
+    const numericData = queryData.map(row => {
+        const numRow: { [key: string]: number } = {};
+        for (const col of allColumns) {
+            numRow[col] = toNum(row[col]);
+        }
+        return numRow;
+    });
+
+    const filteredData = numericData.filter(row => 
+        !Object.values(row).some(Number.isNaN)
+    );
+
     if (filteredData.length < features.length + 2) {
       return jsonSafe({ 
           error: `Not enough valid rows after cleaning NaNs (rows=${filteredData.length}). Original rows from query: ${queryData.length}. This often happens if filters are too restrictive or data contains unexpected non-numeric values.`, 
@@ -107,11 +112,11 @@ export async function runLinearRegression(
       });
     }
 
-    const X_clean_vals = filteredData.map(row => row.slice(0, features.length));
-    const y_clean_vals = filteredData.map(row => row[features.length]);
+    const X_vals = filteredData.map(row => features.map(f => row[f]));
+    const y_vals = filteredData.map(row => row[target]);
 
-    const X = tf.tensor2d(X_clean_vals, [X_clean_vals.length, features.length], 'float32');
-    const y = tf.tensor2d(y_clean_vals, [y_clean_vals.length, 1], 'float32');
+    const X = tf.tensor2d(X_vals, [X_vals.length, features.length], 'float32');
+    const y = tf.tensor2d(y_vals, [y_vals.length, 1], 'float32');
     
     const model = tf.sequential();
     model.add(tf.layers.dense({ units: 1, inputShape: [features.length] }));
