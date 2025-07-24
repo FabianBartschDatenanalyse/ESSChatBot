@@ -9,7 +9,7 @@ import { executeQuery } from './data-service';
  */
 export interface RegressionResult {
   coefficients: Record<string, number> & { intercept: number };
-  r_squared: number;
+  r_squared: number | null;
   n_observations: number;
   note: string;
 }
@@ -20,6 +20,18 @@ export interface RegressionResponse {
   sqlQuery?: string;
 }
 
+
+// helper: make sure nothing unserializable leaks out
+function jsonSafe<T>(obj: T): T {
+  return JSON.parse(
+    JSON.stringify(
+      obj,
+      (_k, v) => (typeof v === 'number' && !Number.isFinite(v) ? null : v)
+    )
+  );
+}
+
+
 /**
  * Prepares the data and runs a linear regression using TensorFlow.js,
  * utilizing Danfo.js for data loading and manual JS for preprocessing.
@@ -29,76 +41,71 @@ export async function runLinearRegression(
   features: string[],
   filters?: Record<string, any>
 ): Promise<RegressionResponse> {
-  console.log(`[stats-service] Starting TF.js linear regression for target '${target}' with features '${features.join(', ')}'.`);
+  let query = '';
+  
+  try {
+    const allColumns = Array.from(new Set([target, ...features]));
+    query = `SELECT ${allColumns.map(c => `"${c}"`).join(', ')} FROM "ESS1"`;
 
-  // 1. Dedupe columns early and build query
-  const allColumns = Array.from(new Set([target, ...features]));
-  let query = `SELECT ${allColumns.map(c => `"${c}"`).join(', ')} FROM "ESS1"`;
-
-  const whereClauses: string[] = [];
-  if (filters) {
-    for (const [key, value] of Object.entries(filters)) {
-      if (Array.isArray(value)) {
-        whereClauses.push(`"${key}" IN (${value.map(v => `'${v}'`).join(',')})`);
-      } else {
-        const filterValue = typeof value === 'string' ? `'${value}'` : value;
-        whereClauses.push(`"${key}" = ${filterValue}`);
+    const whereClauses: string[] = [];
+    if (filters) {
+      for (const [key, value] of Object.entries(filters)) {
+        if (Array.isArray(value)) {
+          whereClauses.push(`"${key}" IN (${value.map(v => `'${v}'`).join(',')})`);
+        } else {
+          const filterValue = typeof value === 'string' ? `'${value}'` : value;
+          whereClauses.push(`"${key}" = ${filterValue}`);
+        }
       }
     }
-  }
   
-  // Filter out common missing value codes for all columns involved
-  for (const col of allColumns) {
-      // More robust filtering: include only valid numeric ranges or specific valid codes
+    // Filter out common missing value codes for all columns involved
+    for (const col of allColumns) {
       if (col === 'gndr') {
           whereClauses.push(`"${col}" IN ('1', '2')`);
       } else {
           whereClauses.push(`"${col}" NOT IN ('7','8','9','66','77','88','99','55', '777', '888', '999')`);
       }
-  }
+    }
 
-  if (whereClauses.length > 0) {
-    query += ` WHERE ${whereClauses.join(' AND ')}`;
-  }
-  
-  try {
+    if (whereClauses.length > 0) {
+      query += ` WHERE ${whereClauses.join(' AND ')}`;
+    }
+
     const { data: queryData, error: queryError } = await executeQuery(query);
 
     if (queryError) {
-      return { error: `SQL query failed: ${queryError}`, sqlQuery: query };
+      return jsonSafe({ error: `SQL query failed: ${queryError}`, sqlQuery: query });
     }
 
     if (!queryData || queryData.length === 0) {
-      return { error: 'No data available for regression after querying. This might be due to filters or missing values.', sqlQuery: query };
+      return jsonSafe({ error: 'No data available for regression after querying. This might be due to filters or missing values.', sqlQuery: query });
     }
     
     const df = new dfd.DataFrame(queryData);
 
-    // Helpful debug
-    console.log('[stats-service] SQL returned keys:', Object.keys(queryData[0] || {}));
-
-    // Ensure every requested col is present
     const dfCols = df.columns as string[];
     const missing = allColumns.filter(c => !dfCols.includes(c));
     if (missing.length) {
-      return {
+      return jsonSafe({
         error: `These columns are not in the DataFrame: ${missing.join(', ')}. Returned columns were: ${dfCols.join(', ')}`,
         sqlQuery: query,
-      };
+      });
     }
     
-    // Manually convert to numbers and filter out rows with any NaNs
-    const toNum = (v: any): number => (v === null || v === '' || v === undefined || isNaN(v as any)) ? NaN : Number(v);
+    const toNum = (v: any): number => (v === null || v === '' || v === undefined || Number.isNaN(Number(v))) ? NaN : Number(v);
 
     const X_vals: (number[])[] = (df.loc({ columns: features }).values as any[][]).map((r: any[]) => r.map(toNum));
     const y_vals: number[] = (df.loc({ columns: [target] }).values as any[][]).map((r: any[]) => toNum(r[0]));
 
-    // Combine features and target to filter rows with NaNs synchronously
     const combined = X_vals.map((row, i) => [...row, y_vals[i]]);
     const filtered = combined.filter(row => !row.some(Number.isNaN));
 
     if (filtered.length < features.length + 2) {
-      return { error: `Not enough valid rows after cleaning NaNs (rows=${filtered.length}). Original rows from query: ${queryData.length}`, sqlQuery: query };
+      return jsonSafe({ 
+          error: `Not enough valid rows after cleaning NaNs (rows=${filtered.length}). Original rows from query: ${queryData.length}`, 
+          sqlQuery: query 
+      });
     }
 
     const X_clean_vals = filtered.map(row => row.slice(0, features.length));
@@ -113,13 +120,13 @@ export async function runLinearRegression(
 
     await model.fit(X, y, { epochs: 100, verbose: 0 });
 
-    const weights = model.getWeights();
-    const coefficientsArray = await weights[0].array() as number[][];
-    const interceptArray = await weights[1].array() as number[];
+    const [W, b] = model.getWeights();
+    const coefficientsArray = await W.array() as number[][];
+    const interceptArray = await b.array() as number[];
 
     const coefficients: Record<string, number> & { intercept: number } = {
       intercept: interceptArray[0],
-    } as any;
+    };
     features.forEach((f, i) => {
       coefficients[f] = coefficientsArray[i][0];
     });
@@ -129,9 +136,11 @@ export async function runLinearRegression(
     const totalSumOfSquares = y.sub(meanY).square().sum();
     const residualSumOfSquares = y.sub(predictions).square().sum();
     const r2Tensor = tf.scalar(1).sub(residualSumOfSquares.div(totalSumOfSquares));
-    const r2 = await r2Tensor.array() as number;
-    
-    console.log('[stats-service] DEBUG: Calculated values:', { coefficients, r2 });
+    let r2 = await r2Tensor.array() as number;
+
+    if (!Number.isFinite(r2)) {
+      r2 = null as any;
+    }
 
     const result: RegressionResult = {
       coefficients,
@@ -139,19 +148,16 @@ export async function runLinearRegression(
       n_observations: filtered.length,
       note: 'Linear regression performed using TensorFlow.js. R-squared is an estimate.',
     };
-
-    console.log('[stats-service] DEBUG: Final result object being returned:', result);
     
-    tf.dispose([X, y, ...weights, predictions, meanY, totalSumOfSquares, residualSumOfSquares, r2Tensor]);
+    tf.dispose([X, y, W, b, predictions, meanY, totalSumOfSquares, residualSumOfSquares, r2Tensor]);
     
-    return { data: result, sqlQuery: query };
+    return jsonSafe({ data: result, sqlQuery: query });
 
   } catch (e: any) {
-    const debugInfo = `
-      Error: ${e?.message || 'Unknown error'}
-      Stack: ${e?.stack}
-    `;
-    console.error('[stats-service] Regression failed', debugInfo);
-    return { error: `Regression analysis failed. Debug Info: ${debugInfo}`, sqlQuery: query };
+    // Keep it tiny & serializable
+    return {
+      error: `Regression analysis failed: ${e?.message ?? 'Unknown error'}`,
+      sqlQuery: typeof query !== 'undefined' ? query : undefined,
+    };
   }
 }
