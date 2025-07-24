@@ -49,30 +49,31 @@ export async function runLinearRegression(
     }
   }
   
+  // Filter out common missing value codes
   for (const col of allColumns) {
-    whereClauses.push(`"${col}" NOT IN ('7','8','9','77','88','99','66','55', '777', '888', '999')`);
+    whereClauses.push(`"${col}" NOT IN ('7','8','9','66','77','88','99','55','777','888','999')`);
   }
 
   if (whereClauses.length > 0) {
     query += ` WHERE ${whereClauses.join(' AND ')}`;
   }
-
-  // ---- Execute Query ----
-  const { data: queryData, error: queryError } = await executeQuery(query);
-
-  if (queryError) {
-    return { error: `SQL query failed: ${queryError}`, sqlQuery: query };
-  }
-
-  if (!queryData || queryData.length === 0) {
-    return { error: 'No data available for regression after querying', sqlQuery: query };
-  }
   
   let df: dfd.DataFrame | undefined;
   let X: tf.Tensor | undefined;
   let y: tf.Tensor | undefined;
-
+  
   try {
+    // ---- Execute Query ----
+    const { data: queryData, error: queryError } = await executeQuery(query);
+
+    if (queryError) {
+      return { error: `SQL query failed: ${queryError}`, sqlQuery: query };
+    }
+
+    if (!queryData || queryData.length === 0) {
+      return { error: 'No data available for regression after querying. This might be due to filters or missing values.', sqlQuery: query };
+    }
+    
     // ---- Load and Prepare Data with Danfo.js ----
     df = new dfd.DataFrame(queryData);
     df = df.dropNa({ axis: 0 });
@@ -84,12 +85,13 @@ export async function runLinearRegression(
     }
 
     // ---- Create Tensors from DataFrame ----
-    const X_df = df.loc({ columns: features });
+    const X_df = df.loc({ columns: features }).asType('float32') as dfd.DataFrame;
     const y_sr = df[target] as dfd.Series;
+    // Explicitly create a new DataFrame for the target with the correct column name
+    const y_df = new dfd.DataFrame({[target]: y_sr.values}, {columns: [target]}).asType('float32') as dfd.DataFrame;
     
-    // Correctly convert to Tensors with the right data type
-    X = (X_df.asType('float32') as dfd.DataFrame).tensor as tf.Tensor;
-    y = (y_sr.asType('float32') as dfd.Series).tensor.reshape([-1, 1]) as tf.Tensor;
+    X = X_df.tensor as tf.Tensor;
+    y = y_df.tensor as tf.Tensor;
     
     // ---- Build and Train Model with TensorFlow.js ----
     const model = tf.sequential();
@@ -97,7 +99,7 @@ export async function runLinearRegression(
     model.compile({ loss: 'meanSquaredError', optimizer: 'sgd' });
 
     console.log('[stats-service] Training TensorFlow.js model...');
-    await model.fit(X, y, { epochs: 100 });
+    await model.fit(X, y, { epochs: 100, verbose: 0 }); // Use verbose: 0 to reduce console noise
     console.log('[stats-service] Model training complete.');
 
     // ---- Extract Results ----
