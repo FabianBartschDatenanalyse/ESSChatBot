@@ -23,7 +23,7 @@ export interface RegressionResponse {
 
 /**
  * Prepares the data and runs a linear regression using TensorFlow.js,
- * utilizing Danfo.js for data handling.
+ * utilizing Danfo.js for data loading and manual JS for preprocessing.
  */
 export async function runLinearRegression(
   target: string,
@@ -59,8 +59,6 @@ export async function runLinearRegression(
   }
   
   let df: dfd.DataFrame | undefined;
-  let X: tf.Tensor | undefined;
-  let y: tf.Tensor | undefined;
   
   try {
     const { data: queryData, error: queryError } = await executeQuery(query);
@@ -75,9 +73,10 @@ export async function runLinearRegression(
     
     df = new dfd.DataFrame(queryData);
 
-    // 2. Log and validate after you build the DataFrame
+    // Helpful debug
     console.log('[stats-service] SQL returned keys:', Object.keys(queryData[0] || {}));
-    
+
+    // Ensure every requested col is present
     const dfCols = df.columns as string[];
     const missing = allColumns.filter(c => !dfCols.includes(c));
     if (missing.length) {
@@ -87,17 +86,30 @@ export async function runLinearRegression(
       };
     }
     
-    df = df.dropNa({ axis: 0 });
-    
-    if (df.shape[0] < features.length + 2) {
-      return { error: `Not enough valid rows after cleaning (rows=${df.shape[0]}) to perform regression.`, sqlQuery: query };
+    // --- Manual Casting and NaN check ---
+    const toNum = (v: any): number => (v === null || v === '' ? NaN : Number(v));
+
+    const X_vals: number[][] = (df.loc({ columns: features }).values as any[][]).map((r: any[]) => r.map(toNum));
+    const y_vals: number[] = (df.loc({ columns: [target] }).values as any[][]).map((r: any[]) => toNum(r[0]));
+
+    if (X_vals.flat().some(Number.isNaN) || y_vals.some(Number.isNaN)) {
+        // This part needs refinement as dropNa should handle it, but it's a good safeguard.
+        // For now, we rely on Danfo's dropNa and will proceed. A more robust implementation could filter here.
     }
 
-    const dataForRegression = df.loc({ columns: allColumns });
-    const typedData = dataForRegression.asType(allColumns, 'float32');
+    // Since we're manually casting, let's also manually handle NaNs before creating tensors.
+    const combined = X_vals.map((row, i) => [...row, y_vals[i]]);
+    const filtered = combined.filter(row => !row.some(Number.isNaN));
 
-    X = (typedData.loc({ columns: features }).tensor as tf.Tensor);
-    y = (typedData.loc({ columns: [target] }).tensor as tf.Tensor);
+    if (filtered.length < features.length + 2) {
+      return { error: `Not enough valid rows after cleaning NaNs (rows=${filtered.length})`, sqlQuery: query };
+    }
+
+    const X_clean_vals = filtered.map(row => row.slice(0, features.length));
+    const y_clean_vals = filtered.map(row => row[features.length]);
+
+    const X = tf.tensor2d(X_clean_vals, [X_clean_vals.length, features.length], 'float32');
+    const y = tf.tensor2d(y_clean_vals, [y_clean_vals.length, 1], 'float32');
     
     const model = tf.sequential();
     model.add(tf.layers.dense({ units: 1, inputShape: [features.length] }));
@@ -126,7 +138,7 @@ export async function runLinearRegression(
     const result: RegressionResult = {
       coefficients,
       r_squared: r2,
-      n_observations: df.shape[0],
+      n_observations: filtered.length,
       note: 'Linear regression performed using TensorFlow.js. R-squared is an estimate.',
     };
 
