@@ -29,14 +29,12 @@ export async function runLinearRegression(
   features: string[],
   filters?: Record<string, any>
 ): Promise<RegressionResponse> {
-  console.log(`[stats-service] Starting linear regression for target '${target}' with features '${features.join(', ')}'.`);
+  console.log(`[stats-service] Starting TF.js linear regression for target '${target}' with features '${features.join(', ')}'.`);
 
   // ---- Hoist variables for debugging in catch block ----
-  let df: dfd.DataFrame;
-  let X_df: dfd.DataFrame;
-  let y_sr: dfd.Series;
-  let X: number[][];
-  let y: number[];
+  let df: dfd.DataFrame | undefined;
+  let X: tf.Tensor | undefined;
+  let y: tf.Tensor | undefined;
   let query: string = '';
 
   try {
@@ -78,7 +76,7 @@ export async function runLinearRegression(
       return { error: 'No data available for regression after querying', sqlQuery: query };
     }
 
-    // ------------------- 3. Load and Prepare Data -------------------
+    // ------------------- 3. Load and Prepare Data with Danfo.js -------------------
     df = new dfd.DataFrame(queryData);
     
     // Cast all relevant columns to float32 for TensorFlow
@@ -97,24 +95,21 @@ export async function runLinearRegression(
       return { error: `Not enough valid rows after cleaning (rows=${df.shape[0]}) to perform regression.`, sqlQuery: query };
     }
 
-    // ------------------- 4. Create Tensors from Plain Arrays -------------------
-    X_df = df.loc({ columns: features });
-    y_sr = df[target] as dfd.Series;
+    // ------------------- 4. Create Tensors from DataFrame -------------------
+    const X_df = df.loc({ columns: features });
+    const y_sr = df[target] as dfd.Series;
 
-    // Force conversion to plain JavaScript arrays
-    X = X_df.values as number[][];
-    y = y_sr.values as number[];
-    
-    const X_tensor = tf.tensor2d(X);
-    const y_tensor = tf.tensor2d(y, [y.length, 1]);
-    
-    // ------------------- 5. Build and Train Model -------------------
+    // Use Danfo's built-in tensor conversion
+    X = X_df.tensor as tf.Tensor;
+    y = y_sr.tensor.reshape([-1, 1]) as tf.Tensor; // Reshape to [n, 1] for TF
+
+    // ------------------- 5. Build and Train Model with TensorFlow.js -------------------
     const model = tf.sequential();
     model.add(tf.layers.dense({ units: 1, inputShape: [features.length] }));
     model.compile({ loss: 'meanSquaredError', optimizer: 'sgd' });
 
     console.log('[stats-service] Training TensorFlow.js model...');
-    await model.fit(X_tensor, y_tensor, { epochs: 100 });
+    await model.fit(X, y, { epochs: 100 });
     console.log('[stats-service] Model training complete.');
 
     // ------------------- 6. Extract Results -------------------
@@ -129,10 +124,10 @@ export async function runLinearRegression(
       coefficients[f] = coefficientsArray[i][0];
     });
 
-    const predictions = model.predict(X_tensor) as tf.Tensor;
-    const meanY = y_tensor.mean();
-    const totalSumOfSquares = y_tensor.sub(meanY).square().sum();
-    const residualSumOfSquares = y_tensor.sub(predictions).square().sum();
+    const predictions = model.predict(X) as tf.Tensor;
+    const meanY = y.mean();
+    const totalSumOfSquares = y.sub(meanY).square().sum();
+    const residualSumOfSquares = y.sub(predictions).square().sum();
     const r2Tensor = tf.scalar(1).sub(residualSumOfSquares.div(totalSumOfSquares));
     const r2 = await r2Tensor.array() as number;
 
@@ -144,7 +139,7 @@ export async function runLinearRegression(
     };
 
     // Clean up tensors
-    tf.dispose([X_tensor, y_tensor, ...weights, predictions, meanY, totalSumOfSquares, residualSumOfSquares, r2Tensor]);
+    tf.dispose([X, y, ...weights, predictions, meanY, totalSumOfSquares, residualSumOfSquares, r2Tensor]);
     
     console.log('[stats-service] Regression calculation successful.');
     return { data: result, sqlQuery: query };
@@ -152,11 +147,6 @@ export async function runLinearRegression(
   } catch (e: any) {
     const debugInfo = `
       Error: ${e?.message || 'Unknown error'}
-      X isArray: ${Array.isArray(X)}
-      y isArray: ${Array.isArray(y)}
-      X[0] isArray: ${Array.isArray(X?.[0])}
-      Sample X[0]: ${JSON.stringify(X?.[0])}
-      Sample y[0]: ${JSON.stringify(y?.[0])}
       Stack: ${e?.stack}
     `;
     console.error('[stats-service] Regression failed', debugInfo);
