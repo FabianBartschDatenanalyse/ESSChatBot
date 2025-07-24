@@ -70,6 +70,7 @@ You have access to two types of tools:
 2.  \`statisticsTool\`: Use this for questions about relationships, influence, or predictions, like linear regression.
 
 Based on the user's question, the conversation history, and the provided context, you must decide which tool is most appropriate. If no tool is needed (e.g., for a greeting or general knowledge question), answer directly.
+When invoking a tool, you MUST pass the relevant context to the \`codebookContext\` parameter of the tool.
 
 When you get a result from a tool, analyze it and explain it to the user in a clear, easy-to-understand way.
 **CRITICAL RULE: If a tool returns an 'error' field, you MUST display that error message to the user verbatim (word-for-word) without any summarization or rephrasing. The user needs to see the exact debug logs.**
