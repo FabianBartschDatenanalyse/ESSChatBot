@@ -31,12 +31,11 @@ export async function runLinearRegression(
 ): Promise<RegressionResponse> {
   console.log(`[stats-service] Starting TF.js linear regression for target '${target}' with features '${features.join(', ')}'.`);
 
-  // 1. Dedupe columns early
+  // 1. Dedupe columns early and build query
   const allColumns = Array.from(new Set([target, ...features]));
   let query = `SELECT ${allColumns.map(c => `"${c}"`).join(', ')} FROM "ESS1"`;
 
   const whereClauses: string[] = [];
-
   if (filters) {
     for (const [key, value] of Object.entries(filters)) {
       if (Array.isArray(value)) {
@@ -48,7 +47,7 @@ export async function runLinearRegression(
     }
   }
   
-  // Filter out common missing value codes
+  // Filter out common missing value codes for all columns involved
   for (const col of allColumns) {
     whereClauses.push(`"${col}" NOT IN ('7','8','9','66','77','88','99','55', '777', '888', '999')`);
   }
@@ -83,17 +82,18 @@ export async function runLinearRegression(
       };
     }
     
-    const toNum = (v: any): number => (v === null || v === '' ? NaN : Number(v));
+    // Manually convert to numbers and filter out rows with any NaNs
+    const toNum = (v: any): number => (v === null || v === '' || v === undefined ? NaN : Number(v));
 
     const X_vals: number[][] = (df.loc({ columns: features }).values as any[][]).map((r: any[]) => r.map(toNum));
     const y_vals: number[] = (df.loc({ columns: [target] }).values as any[][]).map((r: any[]) => toNum(r[0]));
 
-    // Combine and filter out rows with any NaN values
+    // Combine features and target to filter rows with NaNs synchronously
     const combined = X_vals.map((row, i) => [...row, y_vals[i]]);
     const filtered = combined.filter(row => !row.some(Number.isNaN));
 
     if (filtered.length < features.length + 2) {
-      return { error: `Not enough valid rows after cleaning NaNs (rows=${filtered.length}). Original rows: ${queryData.length}`, sqlQuery: query };
+      return { error: `Not enough valid rows after cleaning NaNs (rows=${filtered.length}). Original rows from query: ${queryData.length}`, sqlQuery: query };
     }
 
     const X_clean_vals = filtered.map(row => row.slice(0, features.length));
