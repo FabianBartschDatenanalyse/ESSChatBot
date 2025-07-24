@@ -57,8 +57,6 @@ export async function runLinearRegression(
     query += ` WHERE ${whereClauses.join(' AND ')}`;
   }
   
-  let df: dfd.DataFrame | undefined;
-  
   try {
     const { data: queryData, error: queryError } = await executeQuery(query);
 
@@ -70,7 +68,7 @@ export async function runLinearRegression(
       return { error: 'No data available for regression after querying. This might be due to filters or missing values.', sqlQuery: query };
     }
     
-    df = new dfd.DataFrame(queryData);
+    const df = new dfd.DataFrame(queryData);
 
     // Helpful debug
     console.log('[stats-service] SQL returned keys:', Object.keys(queryData[0] || {}));
@@ -85,7 +83,6 @@ export async function runLinearRegression(
       };
     }
     
-    // --- Manual Casting and NaN check ---
     const toNum = (v: any): number => (v === null || v === '' ? NaN : Number(v));
 
     const X_vals: number[][] = (df.loc({ columns: features }).values as any[][]).map((r: any[]) => r.map(toNum));
@@ -128,6 +125,8 @@ export async function runLinearRegression(
     const residualSumOfSquares = y.sub(predictions).square().sum();
     const r2Tensor = tf.scalar(1).sub(residualSumOfSquares.div(totalSumOfSquares));
     const r2 = await r2Tensor.array() as number;
+    
+    console.log('[stats-service] DEBUG: Calculated values:', { coefficients, r2 });
 
     const result: RegressionResult = {
       coefficients,
@@ -136,6 +135,8 @@ export async function runLinearRegression(
       note: 'Linear regression performed using TensorFlow.js. R-squared is an estimate.',
     };
 
+    console.log('[stats-service] DEBUG: Final result object being returned:', result);
+    
     tf.dispose([X, y, ...weights, predictions, meanY, totalSumOfSquares, residualSumOfSquares, r2Tensor]);
     
     return { data: result, sqlQuery: query };
