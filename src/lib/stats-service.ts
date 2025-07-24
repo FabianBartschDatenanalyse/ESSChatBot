@@ -1,3 +1,4 @@
+
 'use server';
 
 import * as dfd from 'danfojs';
@@ -31,8 +32,8 @@ export async function runLinearRegression(
 ): Promise<RegressionResponse> {
   console.log(`[stats-service] Starting TF.js linear regression for target '${target}' with features '${features.join(', ')}'.`);
 
-  // ---- Hoist variables for debugging in catch block ----
-  const allColumns = [target, ...features];
+  // 1. Dedupe columns early
+  const allColumns = Array.from(new Set([target, ...features]));
   let query = `SELECT ${allColumns.map(c => `"${c}"`).join(', ')} FROM "ESS1"`;
 
   const whereClauses: string[] = [];
@@ -62,7 +63,6 @@ export async function runLinearRegression(
   let y: tf.Tensor | undefined;
   
   try {
-    // ---- Execute Query ----
     const { data: queryData, error: queryError } = await executeQuery(query);
 
     if (queryError) {
@@ -73,34 +73,38 @@ export async function runLinearRegression(
       return { error: 'No data available for regression after querying. This might be due to filters or missing values.', sqlQuery: query };
     }
     
-    // ---- Load and Prepare Data with Danfo.js ----
     df = new dfd.DataFrame(queryData);
-    df = df.dropNa({ axis: 0 }); // Drop rows with any NaN values
-    
-    console.log('[stats-service] DataFrame shape after cleaning:', df.shape);
 
+    // 2. Log and validate after you build the DataFrame
+    console.log('[stats-service] SQL returned keys:', Object.keys(queryData[0] || {}));
+    
+    const dfCols = df.columns as string[];
+    const missing = allColumns.filter(c => !dfCols.includes(c));
+    if (missing.length) {
+      return {
+        error: `These columns are not in the DataFrame: ${missing.join(', ')}. Returned columns were: ${dfCols.join(', ')}`,
+        sqlQuery: query,
+      };
+    }
+    
+    df = df.dropNa({ axis: 0 });
+    
     if (df.shape[0] < features.length + 2) {
       return { error: `Not enough valid rows after cleaning (rows=${df.shape[0]}) to perform regression.`, sqlQuery: query };
     }
 
-    // --- Select relevant columns and convert to float32 for TensorFlow ---
     const dataForRegression = df.loc({ columns: allColumns });
     const typedData = dataForRegression.asType(allColumns, 'float32');
 
-    // ---- Create Tensors from DataFrame ----
     X = (typedData.loc({ columns: features }).tensor as tf.Tensor);
     y = (typedData.loc({ columns: [target] }).tensor as tf.Tensor);
     
-    // ---- Build and Train Model with TensorFlow.js ----
     const model = tf.sequential();
     model.add(tf.layers.dense({ units: 1, inputShape: [features.length] }));
     model.compile({ loss: 'meanSquaredError', optimizer: 'sgd' });
 
-    console.log('[stats-service] Training TensorFlow.js model...');
-    await model.fit(X, y, { epochs: 100, verbose: 0 }); // Use verbose: 0 to reduce console noise
-    console.log('[stats-service] Model training complete.');
+    await model.fit(X, y, { epochs: 100, verbose: 0 });
 
-    // ---- Extract Results ----
     const weights = model.getWeights();
     const coefficientsArray = await weights[0].array() as number[][];
     const interceptArray = await weights[1].array() as number[];
@@ -126,10 +130,8 @@ export async function runLinearRegression(
       note: 'Linear regression performed using TensorFlow.js. R-squared is an estimate.',
     };
 
-    // Clean up tensors
     tf.dispose([X, y, ...weights, predictions, meanY, totalSumOfSquares, residualSumOfSquares, r2Tensor]);
     
-    console.log('[stats-service] Regression calculation successful.');
     return { data: result, sqlQuery: query };
 
   } catch (e: any) {
