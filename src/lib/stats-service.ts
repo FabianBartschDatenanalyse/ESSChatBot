@@ -1,6 +1,5 @@
 'use server';
 
-import * as dfd from 'danfojs';
 import * as tf from '@tensorflow/tfjs';
 import { executeQuery } from './data-service';
 
@@ -34,7 +33,7 @@ function jsonSafe<T>(obj: T): T {
 
 /**
  * Prepares the data and runs a linear regression using TensorFlow.js,
- * utilizing Danfo.js for data loading and manual JS for preprocessing.
+ * utilizing pure JS for data loading and preprocessing.
  */
 export async function runLinearRegression(
   target: string,
@@ -61,9 +60,11 @@ export async function runLinearRegression(
   
     // Filter out common missing value codes for all columns involved
     for (const col of allColumns) {
+       // A more robust filter to only include explicit valid values for categorical vars if known
       if (col === 'gndr') {
           whereClauses.push(`"${col}" IN ('1', '2')`);
       } else {
+          // General exclusion for numeric-like columns
           whereClauses.push(`"${col}" NOT IN ('7','8','9','66','77','88','99','55', '777', '888', '999')`);
       }
     }
@@ -82,34 +83,36 @@ export async function runLinearRegression(
       return jsonSafe({ error: 'No data available for regression after querying. This might be due to filters or missing values.', sqlQuery: query });
     }
     
-    const df = new dfd.DataFrame(queryData);
-
-    const dfCols = df.columns as string[];
-    const missing = allColumns.filter(c => !dfCols.includes(c));
-    if (missing.length) {
-      return jsonSafe({
-        error: `These columns are not in the DataFrame: ${missing.join(', ')}. Returned columns were: ${dfCols.join(', ')}`,
-        sqlQuery: query,
-      });
+    // Validate that all requested columns were returned
+    const returnedCols = Object.keys(queryData[0]);
+    const missingCols = allColumns.filter(c => !returnedCols.includes(c));
+    if (missingCols.length > 0) {
+        return jsonSafe({
+            error: `The database did not return the expected columns. Missing: ${missingCols.join(', ')}.`,
+            sqlQuery: query
+        });
     }
-    
+
+    // Manual data processing without Danfo.js
     const toNum = (v: any): number => (v === null || v === '' || v === undefined || Number.isNaN(Number(v))) ? NaN : Number(v);
 
-    const X_vals: (number[])[] = (df.loc({ columns: features }).values as any[][]).map((r: any[]) => r.map(toNum));
-    const y_vals: number[] = (df.loc({ columns: [target] }).values as any[][]).map((r: any[]) => toNum(r[0]));
+    const combinedData = queryData.map(row => {
+        const featureValues = features.map(f => toNum(row[f]));
+        const targetValue = toNum(row[target]);
+        return [...featureValues, targetValue];
+    });
 
-    const combined = X_vals.map((row, i) => [...row, y_vals[i]]);
-    const filtered = combined.filter(row => !row.some(Number.isNaN));
-
-    if (filtered.length < features.length + 2) {
+    const filteredData = combinedData.filter(row => !row.some(Number.isNaN));
+    
+    if (filteredData.length < features.length + 2) {
       return jsonSafe({ 
-          error: `Not enough valid rows after cleaning NaNs (rows=${filtered.length}). Original rows from query: ${queryData.length}`, 
+          error: `Not enough valid rows after cleaning NaNs (rows=${filteredData.length}). Original rows from query: ${queryData.length}. This often happens if filters are too restrictive or data contains unexpected non-numeric values.`, 
           sqlQuery: query 
       });
     }
 
-    const X_clean_vals = filtered.map(row => row.slice(0, features.length));
-    const y_clean_vals = filtered.map(row => row[features.length]);
+    const X_clean_vals = filteredData.map(row => row.slice(0, features.length));
+    const y_clean_vals = filteredData.map(row => row[features.length]);
 
     const X = tf.tensor2d(X_clean_vals, [X_clean_vals.length, features.length], 'float32');
     const y = tf.tensor2d(y_clean_vals, [y_clean_vals.length, 1], 'float32');
@@ -145,7 +148,7 @@ export async function runLinearRegression(
     const result: RegressionResult = {
       coefficients,
       r_squared: r2,
-      n_observations: filtered.length,
+      n_observations: filteredData.length,
       note: 'Linear regression performed using TensorFlow.js. R-squared is an estimate.',
     };
     
