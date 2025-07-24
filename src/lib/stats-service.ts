@@ -1,4 +1,3 @@
-
 'use server';
 
 import * as dfd from 'danfojs';
@@ -92,17 +91,12 @@ export async function runLinearRegression(
     const X_vals: number[][] = (df.loc({ columns: features }).values as any[][]).map((r: any[]) => r.map(toNum));
     const y_vals: number[] = (df.loc({ columns: [target] }).values as any[][]).map((r: any[]) => toNum(r[0]));
 
-    if (X_vals.flat().some(Number.isNaN) || y_vals.some(Number.isNaN)) {
-        // This part needs refinement as dropNa should handle it, but it's a good safeguard.
-        // For now, we rely on Danfo's dropNa and will proceed. A more robust implementation could filter here.
-    }
-
-    // Since we're manually casting, let's also manually handle NaNs before creating tensors.
+    // Combine and filter out rows with any NaN values
     const combined = X_vals.map((row, i) => [...row, y_vals[i]]);
     const filtered = combined.filter(row => !row.some(Number.isNaN));
 
     if (filtered.length < features.length + 2) {
-      return { error: `Not enough valid rows after cleaning NaNs (rows=${filtered.length})`, sqlQuery: query };
+      return { error: `Not enough valid rows after cleaning NaNs (rows=${filtered.length}). Original rows: ${queryData.length}`, sqlQuery: query };
     }
 
     const X_clean_vals = filtered.map(row => row.slice(0, features.length));
