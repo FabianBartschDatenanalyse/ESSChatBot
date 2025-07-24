@@ -32,8 +32,7 @@ function jsonSafe<T>(obj: T): T {
 
 
 /**
- * Prepares the data and runs a linear regression using TensorFlow.js,
- * utilizing pure JS for data loading and preprocessing.
+ * Prepares the data and runs a linear regression using TensorFlow.js.
  */
 export async function runLinearRegression(
   target: string,
@@ -62,7 +61,7 @@ export async function runLinearRegression(
     for (const col of allColumns) {
        // For gender, explicitly select valid categories.
       if (col === 'gndr') {
-          whereClauses.push(`"${col}" IN ('1', '2')`);
+          whereClauses.push(`"gndr" IN ('1', '2')`);
       } else {
           // General exclusion for other numeric-like columns
           whereClauses.push(`"${col}" NOT IN ('7','8','9','66','77','88','99','55', '777', '888', '999')`);
@@ -123,16 +122,14 @@ export async function runLinearRegression(
     await model.fit(X, y, { epochs: 100, verbose: 0 });
 
     const [W, b] = model.getWeights();
-    
-    // Use .dataSync() to reliably get the values from the tensors
-    const coefficientsData = W.dataSync();
-    const interceptData = b.dataSync();
+    const coefficientsData = W.arraySync() as number[][];
+    const interceptData = b.arraySync() as number[];
 
     const coefficients: Record<string, number> & { intercept: number } = {
       intercept: interceptData[0] ?? 0,
     };
     features.forEach((f, i) => {
-      coefficients[f] = coefficientsData[i] ?? 0;
+      coefficients[f] = coefficientsData[i][0] ?? 0;
     });
 
     const predictions = model.predict(X) as tf.Tensor;
@@ -140,7 +137,7 @@ export async function runLinearRegression(
     const totalSumOfSquares = y.sub(meanY).square().sum();
     const residualSumOfSquares = y.sub(predictions).square().sum();
     const r2Tensor = tf.scalar(1).sub(residualSumOfSquares.div(totalSumOfSquares));
-    let r2 = r2Tensor.dataSync()[0];
+    let r2 = r2Tensor.arraySync() as number;
 
     if (!Number.isFinite(r2)) {
       r2 = null as any;
@@ -155,16 +152,14 @@ export async function runLinearRegression(
     
     tf.dispose([X, y, W, b, predictions, meanY, totalSumOfSquares, residualSumOfSquares, r2Tensor]);
     
-    console.log("[stats-service] Final result object:", JSON.stringify(result, null, 2));
-
     return jsonSafe({ data: result, sqlQuery: query });
 
   } catch (e: any) {
     // Keep it tiny & serializable
     console.error("[stats-service] CATCH BLOCK ERROR:", e);
-    return {
-      error: `Regression analysis failed: ${e?.message ?? 'Unknown error'}. Stack: ${e?.stack ?? 'N/A'}`,
+    return jsonSafe({
+      error: `Regression analysis failed: ${e?.message ?? 'Unknown error'}.`,
       sqlQuery: typeof query !== 'undefined' ? query : undefined,
-    };
+    });
   }
 }
