@@ -90,20 +90,25 @@ export async function runLinearRegression(
         });
     }
 
-    // Convert data to numeric, handling potential non-numeric values gracefully
-    const toNum = (v: any): number => (v === null || v === '' || v === undefined || Number.isNaN(Number(v))) ? NaN : Number(v);
-    
+    // Convert all relevant columns to numbers
     const numericData = queryData.map(row => {
-        const numRow: { [key: string]: number } = {};
+        const newRow: { [key: string]: number } = {};
         for (const col of allColumns) {
-            numRow[col] = toNum(row[col]);
+            newRow[col] = parseFloat(row[col]);
         }
-        return numRow;
+        return newRow;
     });
 
-    const filteredData = numericData.filter(row => 
-        !Object.values(row).some(Number.isNaN)
-    );
+    // Filter out rows with NaN values in any of the relevant columns
+    const filteredData = numericData.filter(row => {
+        for (const col of allColumns) {
+            if (!Number.isFinite(row[col])) {
+                return false;
+            }
+        }
+        return true;
+    });
+
 
     if (filteredData.length < features.length + 2) {
       return jsonSafe({ 
