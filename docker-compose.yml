@@ -15,7 +15,8 @@ services:
       - stats-net
 
   python-service:
-    build: ./app/python-service
+    build:
+      context: ./app/python-service
     container_name: python_service
     ports:
       - "8000:8000"
