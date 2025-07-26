@@ -1,3 +1,4 @@
+
 // To run this script, use the command: `npx tsx src/scripts/embed-codebook.ts`
 // Make sure you have your .env file set up with NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, and OPENAI_API_KEY
 
