@@ -96,7 +96,7 @@ export const statisticsTool = ai.defineTool(
       };
 
       // 4. Call the Python regression service
-      const pythonServiceUrl = process.env.PYTHON_SERVICE_URL || 'http://python-service:8000/regress';
+      const pythonServiceUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000/regress';
       console.log(`[statisticsTool] Calling Python service at ${pythonServiceUrl}`);
       const response = await fetch(pythonServiceUrl, {
         method: 'POST',
