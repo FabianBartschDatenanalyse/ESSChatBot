@@ -1,13 +1,11 @@
-
 'use server';
+
+export const runtime = 'nodejs';
 
 import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-backend-cpu';
 import { executeQuery } from './data-service';
 
-/**
- * Result returned by runLinearRegression
- */
 export interface RegressionResult {
   coefficients: Record<string, number> & { intercept: number };
   r_squared: number | null;
@@ -21,28 +19,16 @@ export interface RegressionResponse {
   sqlQuery?: string;
 }
 
-// helper: make sure nothing unserializable leaks out
-function jsonSafe<T>(obj: T): T {
-  return JSON.parse(
-    JSON.stringify(
-      obj,
-      (_k, v) => (typeof v === 'number' && !Number.isFinite(v) ? null : v)
-    )
-  );
-}
-
-/**
- * Prepares the data and runs a linear regression using TensorFlow.js.
- */
 export async function runLinearRegression(
   target: string,
   features: string[],
   filters?: Record<string, any>
 ): Promise<RegressionResponse> {
   let query = '';
-  console.log(`[stats-service] Starting regression for target '${target}' with features [${features.join(', ')}]`);
-  
   try {
+    await tf.setBackend('cpu');
+    await tf.ready();
+
     const allColumns = Array.from(new Set([target, ...features]));
     query = `SELECT ${allColumns.map(c => `"${c}"`).join(', ')} FROM "ESS1"`;
 
@@ -57,136 +43,99 @@ export async function runLinearRegression(
         }
       }
     }
-  
+    // Generic missing-code filter on all requested columns
     for (const col of allColumns) {
-        whereClauses.push(`"${col}" NOT IN ('7','8','9','66','77','88','99','55', '555', '777', '888', '999', '9999')`);
+      if (col === 'gndr') {
+        whereClauses.push(`"gndr" IN ('1','2')`);
+      } else {
+        whereClauses.push(`"${col}" NOT IN ('7','8','9','55','66','77','88','99','555','777','888','999','9999')`);
+      }
     }
-
-    if (whereClauses.length > 0) {
-      query += ` WHERE ${whereClauses.join(' AND ')}`;
-    }
-    console.log('[stats-service] Executing SQL Query:', query);
+    if (whereClauses.length) query += ` WHERE ${whereClauses.join(' AND ')}`;
 
     const { data: queryData, error: queryError } = await executeQuery(query);
+    if (queryError) return { error: `SQL query failed: ${queryError}`, sqlQuery: query };
 
-    if (queryError) {
-      return jsonSafe({ error: `SQL query failed: ${queryError}`, sqlQuery: query });
+    if (!queryData?.length) {
+      return { error: 'No data available for regression after querying.', sqlQuery: query };
     }
 
-    if (!queryData || queryData.length === 0) {
-      return jsonSafe({ error: 'No data available for regression after querying. This might be due to filters or missing values.', sqlQuery: query });
-    }
-    console.log(`[stats-service] Received ${queryData.length} rows from database.`);
-    
-    const cleanData = queryData
-      .map(row => {
-        const newRow: { [key: string]: number } = {};
-        for (const col of allColumns) {
-          const val = parseFloat(row[col]);
-          if (!Number.isFinite(val)) {
-            return null; // Exclude row if any value is not a finite number
-          }
-          newRow[col] = val;
-        }
-        return newRow;
-      })
-      .filter((row): row is { [key: string]: number } => row !== null);
+    // Parse numerics & drop any row with non-finite
+    const cleanData = queryData.map(row => {
+      const obj: Record<string, number> = {};
+      for (const c of allColumns) {
+        const v = parseFloat(row[c]);
+        if (!Number.isFinite(v)) return null;
+        obj[c] = v;
+      }
+      return obj;
+    }).filter((r): r is Record<string, number> => !!r);
 
     if (cleanData.length < features.length + 2) {
-      return jsonSafe({ 
-          error: `Not enough valid rows after cleaning (rows=${cleanData.length}). Original rows from query: ${queryData.length}. This often happens if filters are too restrictive or data contains non-numeric values.`, 
-          sqlQuery: query 
-      });
+      return {
+        error: `Not enough valid rows after cleaning (rows=${cleanData.length}). Original rows=${queryData.length}.`,
+        sqlQuery: query
+      };
     }
-    console.log(`[stats-service] Have ${cleanData.length} clean data rows for regression.`);
 
-    // Feature Engineering: Recode gender and center age
-    const meanAge = cleanData.reduce((sum, row) => sum + row['agea'], 0) / cleanData.length;
-    const processedFeatures = cleanData.map(row => {
-        const featureValues: number[] = [];
-        features.forEach(feature => {
-            if (feature === 'gndr') {
-                featureValues.push(row[feature] === 2 ? 1 : 0); // 1 for female, 0 for male
-            } else if (feature === 'agea') {
-                featureValues.push(row[feature] - meanAge); // Centered age
-            } else {
-                featureValues.push(row[feature]);
-            }
-        });
-        return featureValues;
-    });
-
-    const targetTensor = tf.tensor2d(cleanData.map(r => [r[target]]));
-    const featureTensor = tf.tensor2d(processedFeatures);
-    
-    console.log('[stats-service] Tensors created successfully.');
-
-    const model = tf.sequential();
-    model.add(tf.layers.dense({
-        inputShape: [features.length],
-        units: 1,
+    // Feature engineering: female dummy (0/1) and centered age
+    const meanAge = cleanData.reduce((s, r) => s + (r['agea'] || 0), 0) / cleanData.length;
+    const processed = cleanData.map(r => features.map(f => {
+      if (f === 'gndr') return r.gndr === 2 ? 1 : 0;
+      if (f === 'agea') return r.agea - meanAge;
+      return r[f];
     }));
 
-    model.compile({
-        optimizer: tf.train.adam(0.1),
-        loss: 'meanSquaredError',
-    });
-    console.log('[stats-service] Model compiled. Starting training...');
+    const featureTensor = tf.tensor2d(processed, [cleanData.length, features.length], 'float32');
+    const targetTensor  = tf.tensor2d(cleanData.map(r => [r[target]]), [cleanData.length, 1], 'float32');
 
-    await model.fit(featureTensor, targetTensor, {
-        epochs: 100,
-        callbacks: {
-            onEpochEnd: (epoch, logs) => {
-                if (epoch % 20 === 0) {
-                    console.log(`[stats-service] Epoch ${epoch}: loss = ${logs?.loss}`);
-                }
-            }
-        }
-    });
-    console.log('[stats-service] Model training complete. Extracting results...');
+    const model = tf.sequential();
+    model.add(tf.layers.dense({ inputShape: [features.length], units: 1 }));
+    model.compile({ optimizer: tf.train.adam(0.01), loss: 'meanSquaredError' });
 
+    await model.fit(featureTensor, targetTensor, { epochs: 400, batchSize: 512, verbose: 0 });
+
+    // Extract weights safely
     const weights = model.getWeights();
-    const kernel = await weights[0].array() as number[][];
-    const bias = await weights[1].array() as number;
+    const kernelT = weights[0];
+    const biasT   = weights[1];
+    const kernel  = (await kernelT.array()) as number[][];
+    const biasVal = (await biasT.data())[0];
 
-    const coefficients: Record<string, number> & { intercept: number } = { intercept: bias };
-    const finalFeatureNames = features.map(f => f === 'gndr' ? 'female' : (f === 'agea' ? 'age_centered' : f));
-    finalFeatureNames.forEach((feature, i) => {
-        coefficients[feature] = kernel[i][0];
-    });
+    const coefficients: Record<string, number> & { intercept: number } = { intercept: biasVal };
+    const finalNames = features.map(n => n === 'gndr' ? 'female' : n === 'agea' ? 'age_centered' : n);
+    finalNames.forEach((name, i) => { coefficients[name] = kernel[i][0]; });
 
+    // R^2
     const predictions = model.predict(featureTensor) as tf.Tensor;
-    const y_true = targetTensor;
     const r2_tensor = tf.tidy(() => {
-        const y_mean = y_true.mean();
-        const ss_total = y_true.sub(y_mean).square().sum();
-        const ss_res = y_true.sub(predictions).square().sum();
-        return tf.scalar(1).sub(ss_res.div(ss_total));
+      const y_mean = targetTensor.mean();
+      const ss_tot = targetTensor.sub(y_mean).square().sum();
+      const ss_res = targetTensor.sub(predictions).square().sum();
+      return tf.scalar(1).sub(ss_res.div(ss_tot));
     });
-    
-    const r_squared = await r2_tensor.array() as number;
-    console.log('[stats-service] Results extracted.');
-    
-    tf.dispose([targetTensor, featureTensor, ...weights, predictions, r2_tensor]);
-    
-    const resultData = {
+    const r2_value = (await r2_tensor.data())[0];
+    const r_squared = Number.isFinite(r2_value) ? r2_value : null;
+
+    tf.dispose([featureTensor, targetTensor, ...weights, predictions, r2_tensor]);
+
+    // Final, JSON-serializable payload
+    const payload = {
       data: {
         coefficients,
-        r_squared: Number.isFinite(r_squared) ? r_squared : null,
+        r_squared,
         n_observations: cleanData.length,
-        note: 'OLS coefficients estimated via iterative gradient descent.',
+        note: 'OLS coefficients estimated via gradient descent on a single dense layer.'
       },
       sqlQuery: query,
     };
-    console.log('[stats-service] Returning successful result:', JSON.stringify(resultData, null, 2));
-    return jsonSafe(resultData);
-
+    // Harden serialization to avoid any surprises
+    return JSON.parse(JSON.stringify(payload));
   } catch (e: any) {
-    console.error("[stats-service] CATCH BLOCK ERROR:", e);
-    const err = e as Error;
-    return jsonSafe({
-      error: `Regression analysis failed: ${err?.message ?? 'Unknown error'}.`,
-      sqlQuery: query,
-    });
+    console.error('[stats-service] CATCH BLOCK ERROR:', e);
+    return {
+      error: `Regression analysis failed: ${e?.message ?? 'Unknown error'}.`,
+      sqlQuery: query
+    };
   }
 }
