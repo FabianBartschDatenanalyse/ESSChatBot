@@ -1,0 +1,19 @@
+version: "3.9"
+services:
+  python-service:
+    build: ./python-service
+    container_name: python_service
+    ports:
+      - "8000:8000"   # FastAPI
+    networks: [stats-net]
+
+  r-service:
+    build: ./r-service
+    container_name: r_service
+    ports:
+      - "8001:8000"   # plumber
+    networks: [stats-net]
+
+networks:
+  stats-net:
+    driver: bridge
