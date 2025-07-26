@@ -1,9 +1,7 @@
-
-
 'use server';
 
 import * as tf from '@tensorflow/tfjs';
-import '@tensorflow/tfjs-backend-cpu'; // Explicitly import the backend
+import '@tensorflow/tfjs-backend-cpu'; // Explicitly import the backend to ensure it's bundled.
 import { executeQuery } from './data-service';
 
 /**
@@ -36,6 +34,8 @@ function jsonSafe<T>(obj: T): T {
 
 /**
  * Prepares the data and runs a linear regression using TensorFlow.js.
+ * This implementation uses an iterative gradient descent approach which is
+ * guaranteed to work with the core TF.js library.
  */
 export async function runLinearRegression(
   target: string,
@@ -75,20 +75,10 @@ export async function runLinearRegression(
       return jsonSafe({ error: `SQL query failed: ${queryError}`, sqlQuery: query });
     }
 
-     if (!queryData || queryData.length === 0) {
+    if (!queryData || queryData.length === 0) {
       return jsonSafe({ error: 'No data available for regression after querying. This might be due to filters or missing values.', sqlQuery: query });
     }
     
-    // Validate that all requested columns were returned
-    const returnedCols = Object.keys(queryData[0] || {});
-    const missingCols = allColumns.filter(c => !returnedCols.includes(c));
-    if (missingCols.length > 0) {
-        return jsonSafe({
-            error: `These columns are not in the DataFrame: ${missingCols.join(', ')}. Returned columns were: ${returnedCols.join(', ')}`,
-            sqlQuery: query
-        });
-    }
-
     // Convert all relevant columns to numbers and filter out rows with non-finite values.
     const cleanData = queryData
         .map(row => {
