@@ -16,7 +16,7 @@ services:
 
   python-service:
     build:
-      context: ./app/python-service
+      context: ./python-service
     container_name: python_service
     ports:
       - "8000:8000"
