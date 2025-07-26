@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import * as tf from '@tensorflow/tfjs';
@@ -61,13 +62,7 @@ export async function runLinearRegression(
   
     // Filter out common missing value codes for all columns involved
     for (const col of allColumns) {
-      // Different missing codes for different vars - add specific filters
-      if (col === 'gndr') {
-          whereClauses.push(`"gndr" IN ('1', '2')`);
-      } else {
-          // General missing value codes
-          whereClauses.push(`"${col}" NOT IN ('7','8','9','66','77','88','99','55', '777', '888', '999')`);
-      }
+        whereClauses.push(`"${col}" NOT IN ('7','8','9','66','77','88','99','55', '555', '777', '888', '999', '9999')`);
     }
 
     if (whereClauses.length > 0) {
@@ -80,7 +75,7 @@ export async function runLinearRegression(
       return jsonSafe({ error: `SQL query failed: ${queryError}`, sqlQuery: query });
     }
 
-    if (!queryData || queryData.length === 0) {
+     if (!queryData || queryData.length === 0) {
       return jsonSafe({ error: 'No data available for regression after querying. This might be due to filters or missing values.', sqlQuery: query });
     }
     
@@ -95,94 +90,88 @@ export async function runLinearRegression(
     }
 
     // Convert all relevant columns to numbers and filter out rows with non-finite values.
-    const filteredData = queryData
-      .map(row => {
-          const newRow: { [key: string]: any } = {};
-          for (const col of allColumns) {
-              newRow[col] = parseFloat(row[col]); // Ensure data is numeric
-          }
-          return newRow;
-      })
-      .filter(row => {
-        for (const col of allColumns) {
-            if (!Number.isFinite(row[col])) {
-                return false; // Remove rows with NaN/Infinity after parsing
+    const cleanData = queryData
+        .map(row => {
+            const newRow: { [key: string]: number } = {};
+            let hasInvalidData = false;
+            for (const col of allColumns) {
+                const val = parseFloat(row[col]);
+                if (!Number.isFinite(val)) {
+                    hasInvalidData = true;
+                    break;
+                }
+                newRow[col] = val;
             }
-        }
-        return true;
-    });
+            return hasInvalidData ? null : newRow;
+        })
+        .filter((row): row is { [key: string]: number } => row !== null);
     
-    if (filteredData.length < features.length + 2) {
+    if (cleanData.length < features.length + 2) {
       return jsonSafe({ 
-          error: `Not enough valid rows after cleaning (rows=${filteredData.length}). Original rows from query: ${queryData.length}. This often happens if filters are too restrictive or data contains unexpected non-numeric values.`, 
+          error: `Not enough valid rows after cleaning (rows=${cleanData.length}). Original rows from query: ${queryData.length}. This often happens if filters are too restrictive or data contains unexpected non-numeric values.`, 
           sqlQuery: query 
       });
     }
 
-    // --- build features ---
-    // Recode gndr to binary and center age (optional but recommended)
-    const rows = filteredData
-      .map(r => {
-        const g = Number(r['gndr']);               // values '1' or '2' -> 1/2
-        const female = g === 2 ? 1 : 0;            // 1=female, 0=male
-        return { trstprl: Number(r['trstprl']), female, agea: Number(r['agea']) };
-      });
+    const targetTensor = tf.tensor2d(cleanData.map(r => [r[target]]));
+    const featureTensor = tf.tensor2d(cleanData.map(r => features.map(f => r[f])));
 
-    // Center age for a nicer intercept (predicted trust for males at mean age)
-    const meanAge = rows.reduce((s, r) => s + r.agea, 0) / rows.length;
-    rows.forEach(r => { (r as any)['agec'] = r.agea - meanAge });
+    // Define the model
+    const model = tf.sequential();
+    model.add(tf.layers.dense({
+        inputShape: [features.length],
+        units: 1,
+    }));
 
-    // Assemble matrices: X = [1, female, agec], y = trstprl
-    const n = rows.length;
-    const X_vals = rows.map(r => [1, r.female, (r as any).agec]);     // intercept in col 0
-    const y_vals = rows.map(r => [r.trstprl]);
+    model.compile({
+        optimizer: tf.train.adam(0.1),
+        loss: 'meanSquaredError',
+    });
 
-    const X = tf.tensor2d(X_vals, [n, 3], 'float32');
-    const y = tf.tensor2d(y_vals, [n, 1], 'float32');
+    // Train the model
+    await model.fit(featureTensor, targetTensor, {
+        epochs: 100,
+        callbacks: {
+            onEpochEnd: (epoch, logs) => {
+                if (epoch % 20 === 0) {
+                    console.log(`[stats-service] Epoch ${epoch}: loss = ${logs?.loss}`);
+                }
+            }
+        }
+    });
 
-    // beta = (X'X)^+ X'y
-    const Xt = X.transpose();
-    const XtX = Xt.matMul(X);
-    const XtX_inv = tf.linalg.pinv(XtX);
-    const XtY = Xt.matMul(y);
-    const beta = XtX_inv.matMul(XtY); // shape (3 x 1)
+    // Extract results
+    const weights = model.getWeights();
+    const kernel = await weights[0].array() as number[][];
+    const bias = await weights[1].array() as number;
 
-    // Predictions and R^2
-    const yhat = X.matMul(beta);
-    const ybar = y.mean();
-    const ss_tot = y.sub(ybar).square().sum();
-    const ss_res = y.sub(yhat).square().sum();
-    const r2_tensor = tf.scalar(1).sub(ss_res.div(ss_tot));
-    const r2 = await r2_tensor.array() as number;
+    const coefficients: Record<string, number> & { intercept: number } = { intercept: bias };
+    features.forEach((feature, i) => {
+        coefficients[feature] = kernel[i][0];
+    });
 
-    // Pull coefficients
-    const b = (await beta.array()) as number[][];
-    const intercept = b[0][0];
-    const b_female = b[1][0];   // mean difference (female − male) at same age
-    const b_agec   = b[2][0];   // change per +1 year, holding gender fixed
-
-    // Package results
-    const coefficients = {
-      intercept,
-      female: b_female,
-      agec: b_agec,       // note: coefficient is for centered age
-      mean_age: meanAge,  // include so caller can reconstruct with uncentered age
-    };
+    // Calculate R-squared
+    const predictions = model.predict(featureTensor) as tf.Tensor;
+    const y_true = targetTensor;
+    const y_mean = y_true.mean();
+    const ss_total = y_true.sub(y_mean).square().sum();
+    const ss_res = y_true.sub(predictions).square().sum();
+    const r2_tensor = tf.scalar(1).sub(ss_res.div(ss_total));
+    const r_squared = await r2_tensor.array() as number;
     
-    tf.dispose([X, y, Xt, XtX, XtX_inv, XtY, beta, yhat, ybar, ss_tot, ss_res, r2_tensor]);
+    tf.dispose([targetTensor, featureTensor, ...weights, predictions, y_mean, ss_total, ss_res, r2_tensor]);
     
     return jsonSafe({
       data: {
         coefficients,
-        r_squared: Number.isFinite(r2) ? r2 : null,
-        n_observations: n,
-        note: 'OLS via closed-form (pinv). Standard errors available if needed.',
+        r_squared: Number.isFinite(r_squared) ? r_squared : null,
+        n_observations: cleanData.length,
+        note: 'OLS coefficients estimated via iterative gradient descent.',
       },
       sqlQuery: query,
     });
 
   } catch (e: any) {
-    // Keep it tiny & serializable
     console.error("[stats-service] CATCH BLOCK ERROR:", e);
     const err = e as Error;
     return jsonSafe({
