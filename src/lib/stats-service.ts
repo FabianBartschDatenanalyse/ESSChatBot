@@ -1,3 +1,4 @@
+
 'use server';
 
 import * as tf from '@tensorflow/tfjs';
@@ -90,29 +91,27 @@ export async function runLinearRegression(
         });
     }
 
-    // Convert all relevant columns to numbers
-    const numericData = queryData.map(row => {
-        const newRow: { [key: string]: number } = {};
-        for (const col of allColumns) {
-            newRow[col] = parseFloat(row[col]);
-        }
-        return newRow;
-    });
-
-    // Filter out rows with NaN values in any of the relevant columns
-    const filteredData = numericData.filter(row => {
+    // Convert all relevant columns to numbers and filter out rows with non-finite values.
+    const filteredData = queryData
+      .map(row => {
+          const newRow: { [key: string]: number } = {};
+          for (const col of allColumns) {
+              newRow[col] = parseFloat(row[col]);
+          }
+          return newRow;
+      })
+      .filter(row => {
         for (const col of allColumns) {
             if (!Number.isFinite(row[col])) {
-                return false;
+                return false; // Exclude row if any value is NaN, null, or undefined after parsing
             }
         }
         return true;
     });
 
-
     if (filteredData.length < features.length + 2) {
       return jsonSafe({ 
-          error: `Not enough valid rows after cleaning NaNs (rows=${filteredData.length}). Original rows from query: ${queryData.length}. This often happens if filters are too restrictive or data contains unexpected non-numeric values.`, 
+          error: `Not enough valid rows after cleaning (rows=${filteredData.length}). Original rows from query: ${queryData.length}. This often happens if filters are too restrictive or data contains unexpected non-numeric values.`, 
           sqlQuery: query 
       });
     }
@@ -129,23 +128,27 @@ export async function runLinearRegression(
 
     await model.fit(X, y, { epochs: 100, verbose: 0 });
 
-    const [W, b] = model.getWeights();
-    const coefficientsArray = await W.array() as number[][];
-    const interceptArray = await b.array() as number[];
+    const weights = model.getWeights();
+    const W = weights[0]; // Kernel (coefficients)
+    const b = weights[1]; // Bias (intercept)
+
+    const coefficientsArray = (W.arraySync() as number[][]).flat();
+    const interceptValue = (b.arraySync() as number[])[0];
 
     const coefficients: Record<string, number> & { intercept: number } = {
-      intercept: interceptArray[0] ?? 0,
+      intercept: interceptValue,
     };
     features.forEach((f, i) => {
-      coefficients[f] = coefficientsArray[i][0] ?? 0;
+      coefficients[f] = coefficientsArray[i];
     });
+
 
     const predictions = model.predict(X) as tf.Tensor;
     const meanY = y.mean();
     const totalSumOfSquares = y.sub(meanY).square().sum();
     const residualSumOfSquares = y.sub(predictions).square().sum();
     const r2Tensor = tf.scalar(1).sub(residualSumOfSquares.div(totalSumOfSquares));
-    let r2 = await r2Tensor.array() as number;
+    let r2 = r2Tensor.arraySync() as number;
 
     if (!Number.isFinite(r2)) {
       r2 = null as any;
@@ -172,3 +175,4 @@ export async function runLinearRegression(
     });
   }
 }
+
