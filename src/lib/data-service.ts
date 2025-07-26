@@ -37,7 +37,7 @@ export async function executeQuery(query: string): Promise<{ data?: any[], error
       return { error: errorMessage };
     }
     
-    // The rpcResponse is the direct JSON object from the function: { status: '...', data: { columns: [], rows: [] } }
+    // The rpcResponse is the direct JSON object from the function: { status: '...', data: [...] }
     const queryResult = rpcResponse;
     console.log('[data-service] Response from database function:', JSON.stringify(queryResult, null, 2));
     
@@ -47,25 +47,15 @@ export async function executeQuery(query: string): Promise<{ data?: any[], error
     }
 
     if (queryResult.status === 'success' && queryResult.data) {
-      const { columns, rows } = queryResult.data;
-      
-      // If there are no rows, return an empty array.
-      if (!rows || rows.length === 0) {
-        console.log('[data-service] Success. No rows returned.');
-        return { data: [] };
+      // The data is already in the correct format: array of objects
+      if (!Array.isArray(queryResult.data)) {
+          const unexpectedFormatError = 'Data from database function is not an array.';
+          console.error(`[data-service] ${unexpectedFormatError}`, queryResult.data);
+          return { error: unexpectedFormatError };
       }
-
-      // Transform the row arrays into an array of objects.
-      const formattedData = rows.map((row: any[]) => {
-        const rowObject: { [key: string]: any } = {};
-        columns.forEach((col: string, index: number) => {
-          rowObject[col] = row[index];
-        });
-        return rowObject;
-      });
-
-      console.log(`[data-service] Success. Returning ${formattedData.length} formatted rows.`);
-      return { data: formattedData };
+      
+      console.log(`[data-service] Success. Returning ${queryResult.data.length} formatted rows.`);
+      return { data: queryResult.data };
     }
 
     const unexpectedFormatError = 'Received an unexpected response format from the database function.';
