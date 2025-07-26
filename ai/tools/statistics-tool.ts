@@ -135,7 +135,7 @@ export const statisticsTool = ai.defineTool(
       }
 
       // 4. Call the Python regression service with timeout & clearer errors
-      const pythonServiceUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000/regress';
+      const pythonServiceUrl = (process.env.PYTHON_SERVICE_URL || 'http://localhost:8000') + '/regress';
       console.log(`[statisticsTool] Calling Python service at ${pythonServiceUrl}`);
 
       const ctrl = new AbortController();

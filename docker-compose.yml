@@ -18,7 +18,7 @@ services:
     build: ./app/python-service
     container_name: python_service
     ports:
-      - "8000:8000"   # FastAPI
+      - "8000:8000"
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     networks:
       - stats-net
@@ -27,7 +27,7 @@ services:
     build: ./r-service
     container_name: r_service
     ports:
-      - "8001:8000"   # plumber
+      - "8001:8000"
     networks:
       - stats-net
 
