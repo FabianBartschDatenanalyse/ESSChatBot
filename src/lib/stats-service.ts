@@ -77,31 +77,15 @@ export async function runLinearRegression(
     }
 
     // Feature engineering: female dummy (0/1) and centered age
-    const processedFeatures = features.map(f => {
-        if (f === 'gndr') return 'female';
-        if (f === 'agea') return 'age_centered';
-        return f;
-    });
+    const meanAge = cleanData.reduce((s, r) => s + (r['agea'] || 0), 0) / cleanData.length;
+    const processedFeatures = cleanData.map(r => features.map(f => {
+      if (f === 'gndr') return r.gndr === 2 ? 1 : 0;
+      if (f === 'agea') return r.agea - meanAge;
+      return r[f];
+    }));
 
-    const processedData = cleanData.map(r => {
-        const row: Record<string, number> = {};
-        const meanAge = cleanData.reduce((s, r) => s + (r['agea'] || 0), 0) / cleanData.length;
-        
-        row[target] = r[target];
-        if (features.includes('gndr')) {
-            row['female'] = r.gndr === 2 ? 1 : 0;
-        }
-        if (features.includes('agea')) {
-            row['age_centered'] = r.agea - meanAge;
-        }
-        return row;
-    });
-    
-    const featureValues = processedData.map(r => processedFeatures.map(f => r[f]));
-    const targetValues = processedData.map(r => [r[target]]);
-
-    const featureTensor = tf.tensor2d(featureValues, [cleanData.length, features.length], 'float32');
-    const targetTensor  = tf.tensor2d(targetValues, [cleanData.length, 1], 'float32');
+    const featureTensor = tf.tensor2d(processedFeatures, [cleanData.length, features.length], 'float32');
+    const targetTensor  = tf.tensor2d(cleanData.map(r => [r[target]]), [cleanData.length, 1], 'float32');
 
     const model = tf.sequential();
     model.add(tf.layers.dense({ inputShape: [features.length], units: 1 }));
@@ -117,7 +101,8 @@ export async function runLinearRegression(
     const biasVal = (await biasT.data())[0];
 
     const coefficients: Record<string, number> & { intercept: number } = { intercept: biasVal };
-    processedFeatures.forEach((name, i) => { coefficients[name] = kernel[i][0]; });
+    const finalNames = features.map(n => n === 'gndr' ? 'female' : n === 'agea' ? 'age_centered' : n);
+    finalNames.forEach((name, i) => { coefficients[name] = kernel[i][0]; });
 
     // R^2
     const predictions = model.predict(featureTensor) as tf.Tensor;
