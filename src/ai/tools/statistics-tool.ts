@@ -41,20 +41,20 @@ export const statisticsTool = ai.defineTool(
     try {
       // 1. Construct the SQL query to fetch raw data
       const allColumns = Array.from(new Set([input.target, ...input.features]));
-      sqlQuery = `SELECT ${allColumns.map(c => `"${c}"`).join(', ')} FROM "ESS1"`;
+      sqlQuery = `SELECT ${allColumns.map(c => `${c}`).join(', ')} FROM "ESS1"`;
 
       const whereClauses: string[] = [];
       if (input.filters) {
         for (const [key, value] of Object.entries(input.filters)) {
-          whereClauses.push(`"${key}" = '${value}'`);
+          whereClauses.push(`${key} = '${value}'`);
         }
       }
       // Add generic filters to exclude common missing values
       for (const col of allColumns) {
          if (col === 'gndr') {
-            whereClauses.push(`"gndr" IN ('1','2')`);
+            whereClauses.push(`gndr IN ('1','2')`);
          } else {
-            whereClauses.push(`"${col}" NOT IN ('7','8','9','55','66','77','88','99','555','777','888','999','9999')`);
+            whereClauses.push(`${col} NOT IN ('7','8','9','55','66','77','88','99','555','777','888','999','9999')`);
          }
       }
 
@@ -96,7 +96,7 @@ export const statisticsTool = ai.defineTool(
       };
 
       // 4. Call the Python regression service
-      const pythonServiceUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000/regress';
+      const pythonServiceUrl = process.env.PYTHON_SERVICE_URL || 'http://python-service:8000/regress';
       console.log(`[statisticsTool] Calling Python service at ${pythonServiceUrl}`);
       const response = await fetch(pythonServiceUrl, {
         method: 'POST',
