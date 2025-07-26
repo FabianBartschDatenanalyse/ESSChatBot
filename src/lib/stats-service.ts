@@ -2,6 +2,7 @@
 'use server';
 
 import * as tf from '@tensorflow/tfjs';
+import '@tensorflow/tfjs-backend-cpu'; // Explicitly import the backend
 import { executeQuery } from './data-service';
 
 /**
@@ -60,9 +61,11 @@ export async function runLinearRegression(
   
     // Filter out common missing value codes for all columns involved
     for (const col of allColumns) {
+      // Different missing codes for different vars - add specific filters
       if (col === 'gndr') {
           whereClauses.push(`"gndr" IN ('1', '2')`);
       } else {
+          // General missing value codes
           whereClauses.push(`"${col}" NOT IN ('7','8','9','66','77','88','99','55', '777', '888', '999')`);
       }
     }
@@ -96,19 +99,19 @@ export async function runLinearRegression(
       .map(row => {
           const newRow: { [key: string]: any } = {};
           for (const col of allColumns) {
-              newRow[col] = row[col];
+              newRow[col] = parseFloat(row[col]); // Ensure data is numeric
           }
           return newRow;
       })
       .filter(row => {
         for (const col of allColumns) {
-            if (!Number.isFinite(parseFloat(row[col]))) {
-                return false;
+            if (!Number.isFinite(row[col])) {
+                return false; // Remove rows with NaN/Infinity after parsing
             }
         }
         return true;
     });
-
+    
     if (filteredData.length < features.length + 2) {
       return jsonSafe({ 
           error: `Not enough valid rows after cleaning (rows=${filteredData.length}). Original rows from query: ${queryData.length}. This often happens if filters are too restrictive or data contains unexpected non-numeric values.`, 
