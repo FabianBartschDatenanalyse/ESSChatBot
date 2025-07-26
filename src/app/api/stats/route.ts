@@ -1,10 +1,10 @@
 'use server';
 
-import {runLinearRegression} from '@/lib/stats-service';
-import {NextResponse} from 'next/server';
-
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+import {runLinearRegression} from '@/lib/stats-service';
+import {NextResponse} from 'next/server';
 
 export async function POST(request: Request) {
   try {

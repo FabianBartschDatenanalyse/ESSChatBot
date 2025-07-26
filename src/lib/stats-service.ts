@@ -90,8 +90,7 @@ export async function runLinearRegression(
     }
 
     // Feature engineering: female dummy (0/1) and centered age
-    const meanAge =
-      cleanData.reduce((s, r) => s + (r['agea'] || 0), 0) / cleanData.length;
+    const meanAge = cleanData.reduce((s, r) => s + (r['agea'] || 0), 0) / cleanData.length;
     const processedFeatures = cleanData.map(r =>
       features.map(f => {
         if (f === 'gndr') return r.gndr === 2 ? 1 : 0;
