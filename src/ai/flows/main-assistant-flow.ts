@@ -102,8 +102,9 @@ ${retrievedContext}
         if (toolCallOutputs.length > 0) {
             const lastToolOutput = toolCallOutputs[toolCallOutputs.length - 1];
             try {
-                const toolContent = lastToolOutput.content[0].text;
-                if (toolContent) {
+                // Ensure toolContent is a string before attempting to parse
+                const toolContent = lastToolOutput.content[0]?.text;
+                if (toolContent && typeof toolContent === 'string') {
                     const parsedContent = JSON.parse(toolContent);
                     sqlQuery = parsedContent.sqlQuery;
                 }
