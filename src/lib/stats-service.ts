@@ -94,16 +94,16 @@ export async function runLinearRegression(
     // Convert all relevant columns to numbers and filter out rows with non-finite values.
     const filteredData = queryData
       .map(row => {
-          const newRow: { [key: string]: number } = {};
+          const newRow: { [key: string]: any } = {};
           for (const col of allColumns) {
-              newRow[col] = parseFloat(row[col]);
+              newRow[col] = row[col];
           }
           return newRow;
       })
       .filter(row => {
         for (const col of allColumns) {
-            if (!Number.isFinite(row[col])) {
-                return false; // Exclude row if any value is NaN, null, or undefined after parsing
+            if (!Number.isFinite(parseFloat(row[col]))) {
+                return false;
             }
         }
         return true;
@@ -116,54 +116,67 @@ export async function runLinearRegression(
       });
     }
 
-    const X_vals = filteredData.map(row => features.map(f => row[f]));
-    const y_vals = filteredData.map(row => row[target]);
+    // --- build features ---
+    // Recode gndr to binary and center age (optional but recommended)
+    const rows = filteredData
+      .map(r => {
+        const g = Number(r['gndr']);               // values '1' or '2' -> 1/2
+        const female = g === 2 ? 1 : 0;            // 1=female, 0=male
+        return { trstprl: Number(r['trstprl']), female, agea: Number(r['agea']) };
+      });
 
-    const X = tf.tensor2d(X_vals, [X_vals.length, features.length], 'float32');
-    const y = tf.tensor2d(y_vals, [y_vals.length, 1], 'float32');
-    
-    const model = tf.sequential();
-    model.add(tf.layers.dense({ units: 1, inputShape: [features.length] }));
-    model.compile({ loss: 'meanSquaredError', optimizer: 'sgd' });
+    // Center age for a nicer intercept (predicted trust for males at mean age)
+    const meanAge = rows.reduce((s, r) => s + r.agea, 0) / rows.length;
+    rows.forEach(r => { (r as any)['agec'] = r.agea - meanAge });
 
-    await model.fit(X, y, { epochs: 100, verbose: 0 });
+    // Assemble matrices: X = [1, female, agec], y = trstprl
+    const n = rows.length;
+    const X_vals = rows.map(r => [1, r.female, (r as any).agec]);     // intercept in col 0
+    const y_vals = rows.map(r => [r.trstprl]);
 
-    const weights = model.getWeights();
-    const W = weights[0]; // Kernel (coefficients)
-    const b = weights[1]; // Bias (intercept)
+    const X = tf.tensor2d(X_vals, [n, 3], 'float32');
+    const y = tf.tensor2d(y_vals, [n, 1], 'float32');
 
-    const coefficientsArray = (W.arraySync() as number[][]).flat();
-    const interceptValue = (b.arraySync() as number[])[0];
+    // beta = (X'X)^+ X'y
+    const Xt = X.transpose();
+    const XtX = Xt.matMul(X);
+    const XtX_inv = tf.linalg.pinv(XtX);
+    const XtY = Xt.matMul(y);
+    const beta = XtX_inv.matMul(XtY); // shape (3 x 1)
 
-    const coefficients: Record<string, number> & { intercept: number } = {
-      intercept: interceptValue,
+    // Predictions and R^2
+    const yhat = X.matMul(beta);
+    const ybar = y.mean();
+    const ss_tot = y.sub(ybar).square().sum();
+    const ss_res = y.sub(yhat).square().sum();
+    const r2_tensor = tf.scalar(1).sub(ss_res.div(ss_tot));
+    const r2 = await r2_tensor.array() as number;
+
+    // Pull coefficients
+    const b = (await beta.array()) as number[][];
+    const intercept = b[0][0];
+    const b_female = b[1][0];   // mean difference (female − male) at same age
+    const b_agec   = b[2][0];   // change per +1 year, holding gender fixed
+
+    // Package results
+    const coefficients = {
+      intercept,
+      female: b_female,
+      agec: b_agec,       // note: coefficient is for centered age
+      mean_age: meanAge,  // include so caller can reconstruct with uncentered age
     };
-    features.forEach((f, i) => {
-      coefficients[f] = coefficientsArray[i];
+    
+    tf.dispose([X, y, Xt, XtX, XtX_inv, XtY, beta, yhat, ybar, ss_tot, ss_res, r2_tensor]);
+    
+    return jsonSafe({
+      data: {
+        coefficients,
+        r_squared: Number.isFinite(r2) ? r2 : null,
+        n_observations: n,
+        note: 'OLS via closed-form (pinv). Standard errors available if needed.',
+      },
+      sqlQuery: query,
     });
-
-
-    const predictions = model.predict(X) as tf.Tensor;
-    const meanY = y.mean();
-    const totalSumOfSquares = y.sub(meanY).square().sum();
-    const residualSumOfSquares = y.sub(predictions).square().sum();
-    const r2Tensor = tf.scalar(1).sub(residualSumOfSquares.div(totalSumOfSquares));
-    let r2 = r2Tensor.arraySync() as number;
-
-    if (!Number.isFinite(r2)) {
-      r2 = null as any;
-    }
-
-    const result: RegressionResult = {
-      coefficients,
-      r_squared: r2,
-      n_observations: filteredData.length,
-      note: 'Linear regression performed using TensorFlow.js. R-squared is an estimate.',
-    };
-    
-    tf.dispose([X, y, W, b, predictions, meanY, totalSumOfSquares, residualSumOfSquares, r2Tensor]);
-    
-    return jsonSafe({ data: result, sqlQuery: query });
 
   } catch (e: any) {
     // Keep it tiny & serializable
@@ -175,4 +188,3 @@ export async function runLinearRegression(
     });
   }
 }
-
