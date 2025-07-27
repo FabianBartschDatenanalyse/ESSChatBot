@@ -161,7 +161,7 @@ export const statisticsTool = ai.defineTool(
       logs.push('Step 4: Calling Python regression service...');
       console.log(logs[logs.length - 1]);
       const pythonServiceBaseUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
-      const pythonServiceUrl = `${pythonServiceBaseUrl}/regress`;
+      const pythonServiceUrl = `${pythonServiceBaseUrl}/ols`;
       logs.push(`Service URL: ${pythonServiceUrl}`);
       console.log(logs[logs.length - 1]);
 
@@ -217,3 +217,4 @@ export const statisticsTool = ai.defineTool(
     }
   }
 );
+    
