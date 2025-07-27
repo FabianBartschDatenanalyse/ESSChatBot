@@ -62,19 +62,24 @@ export const statisticsTool = ai.defineTool(
       if (whereClauses.length > 0) {
         sqlQuery += ` WHERE ${whereClauses.join(' AND ')}`;
       }
-      console.log('[statisticsTool] Constructed SQL Query:', sqlQuery);
+      console.log('[statisticsTool] Step 1: Constructed SQL Query:', sqlQuery);
 
       // 2. Fetch data from Supabase
+      console.log('[statisticsTool] Step 2: Fetching data from Supabase...');
       const { data: queryData, error: queryError } = await executeQuery(sqlQuery);
 
       if (queryError) {
+        console.error('[statisticsTool] Error fetching data:', queryError);
         return { error: `SQL query failed: ${queryError}`, sqlQuery };
       }
       if (!queryData || queryData.length === 0) {
+        console.warn('[statisticsTool] No data available for analysis after filtering.');
         return { error: 'Not enough data available for analysis after filtering.', sqlQuery };
       }
+      console.log(`[statisticsTool] Successfully fetched ${queryData.length} rows.`);
       
       // 3. Transform data for the Python service (row-wise filtering)
+      console.log('[statisticsTool] Step 3: Transforming data for Python service...');
       const cols = allColumns.slice(); // copy
       const typedRows = [] as Record<string, number>[];
 
@@ -90,24 +95,26 @@ export const statisticsTool = ai.defineTool(
       }
 
       if (typedRows.length < 10) {
+        console.warn('[statisticsTool] Not enough clean rows after numeric parsing.');
         return { error: 'Not enough clean rows after numeric parsing.', sqlQuery };
       }
+      console.log(`[statisticsTool] Transformed data into ${typedRows.length} clean rows.`);
 
       // Feature engineering for formula consistency:
-      // If the user wants female + agec, create these columns from gndr/agea.
       const hasGndr = cols.includes('gndr');
       const hasAgea = cols.includes('agea');
 
-      // create female (1 if gndr==2 else 0) and centered age (agec)
       let meanAge = 0;
       if (hasAgea) {
         meanAge = typedRows.reduce((s, r) => s + r.agea, 0) / typedRows.length;
+        console.log(`[statisticsTool] Calculated mean age: ${meanAge}`);
       }
 
       for (const r of typedRows) {
         if (hasGndr) r.female = r.gndr === 2 ? 1 : 0;
         if (hasAgea) r.agec = r.agea - meanAge;
       }
+      console.log(`[statisticsTool] Feature engineering complete (female, agec).`);
 
       // Build column-oriented data with equal lengths
       const columnData: Record<string, number[]> = {};
@@ -121,6 +128,7 @@ export const statisticsTool = ai.defineTool(
               if (r[c] !== undefined) columnData[c].push(r[c]);
           }
       }
+      console.log('[statisticsTool] Converted data to column-oriented format.');
 
       // Decide which formula to use based on desired features
       let formula: string;
@@ -133,42 +141,60 @@ export const statisticsTool = ai.defineTool(
       } else {
         formula = `${input.target} ~ ${input.features.join(' + ')}`;
       }
+      console.log(`[statisticsTool] Generated regression formula: ${formula}`);
 
       // 4. Call the Python regression service with timeout & clearer errors
+      console.log('[statisticsTool] Step 4: Calling Python regression service...');
       const pythonServiceBaseUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
       const pythonServiceUrl = new URL('/regress', pythonServiceBaseUrl).toString();
 
-      console.log(`[statisticsTool] Calling Python service at ${pythonServiceUrl}`);
+      console.log(`[statisticsTool] Service URL: ${pythonServiceUrl}`);
+      const payload = { formula, data: columnData };
+      console.log(`[statisticsTool] Payload size: ${JSON.stringify(payload).length} bytes`);
+
 
       const ctrl = new AbortController();
-      const to = setTimeout(() => ctrl.abort(), 15000); // 15s timeout
+      const to = setTimeout(() => {
+        console.error('[statisticsTool] Request timed out after 15s.');
+        ctrl.abort('timeout');
+      }, 15000); // 15s timeout
 
       let response: Response;
       try {
         response = await fetch(pythonServiceUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ formula, data: columnData }),
+          body: JSON.stringify(payload),
           signal: ctrl.signal,
         });
       } catch (netErr: any) {
         clearTimeout(to);
+        console.error(`[statisticsTool] Fetch failed. Error: ${netErr?.message || netErr}`);
         return { error: `Cannot reach analysis service at ${pythonServiceUrl}: ${netErr?.message || netErr}`, sqlQuery };
       }
       clearTimeout(to);
 
+      console.log(`[statisticsTool] Received response with status: ${response.status}`);
       if (!response.ok) {
-        const errorBody = await response.text().catch(() => '');
+        const errorBody = await response.text().catch(() => 'Could not read error body.');
+        console.error(`[statisticsTool] Analysis service returned an error. Status: ${response.status}, Body: ${errorBody}`);
         return { error: `Analysis service HTTP ${response.status}: ${errorBody || 'no body'}`, sqlQuery };
       }
 
-      const result = await response.json().catch(e => ({ error: `Invalid JSON from analysis service: ${String(e)}` }));
+      const result = await response.json().catch(e => {
+        console.error('[statisticsTool] Failed to parse JSON from analysis service:', e);
+        return { error: `Invalid JSON from analysis service: ${String(e)}` };
+      });
+
+      console.log('[statisticsTool] Successfully received and parsed result from analysis service.');
       return { result, sqlQuery };
 
     } catch (e: any) {
       const errorMsg = `💥 Unexpected error in statisticsTool: ${e.message || 'Unknown error'}`;
-      console.error('[statisticsTool]', errorMsg);
+      console.error('[statisticsTool]', errorMsg, e.stack);
       return { error: errorMsg, sqlQuery };
     }
   }
 );
+
+    
