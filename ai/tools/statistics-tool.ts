@@ -135,7 +135,9 @@ export const statisticsTool = ai.defineTool(
       }
 
       // 4. Call the Python regression service with timeout & clearer errors
-      const pythonServiceUrl = (process.env.PYTHON_SERVICE_URL || 'http://localhost:8000') + '/regress';
+      const pythonServiceBaseUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
+      const pythonServiceUrl = new URL('/regress', pythonServiceBaseUrl).toString();
+
       console.log(`[statisticsTool] Calling Python service at ${pythonServiceUrl}`);
 
       const ctrl = new AbortController();
@@ -165,7 +167,7 @@ export const statisticsTool = ai.defineTool(
 
     } catch (e: any) {
       const errorMsg = `💥 Unexpected error in statisticsTool: ${e.message || 'Unknown error'}`;
-      console.error(errorMsg);
+      console.error('[statisticsTool]', errorMsg);
       return { error: errorMsg, sqlQuery };
     }
   }
