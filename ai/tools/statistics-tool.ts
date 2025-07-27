@@ -1,4 +1,3 @@
-
 'use server';
 
 /**
@@ -196,5 +195,3 @@ export const statisticsTool = ai.defineTool(
     }
   }
 );
-
-    
