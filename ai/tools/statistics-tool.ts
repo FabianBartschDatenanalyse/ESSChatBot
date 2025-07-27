@@ -7,7 +7,7 @@
 import { ai } from '@/ai/genkit';
 import { z } from 'zod';
 import { executeQuery } from '@/lib/data-service';
-import { MultivariateLinearRegression } from 'ml-regression';
+import MultivariateLinearRegression from 'ml-regression-multivariate-linear';
 
 const toolInputSchema = z.object({
   target: z.string().describe('The target (dependent) variable for the analysis. Must be a single column name.'),
@@ -139,15 +139,18 @@ export const statisticsTool = ai.defineTool(
 
       // The 'ml-regression' library does not provide all the stats out-of-the-box like statsmodels.
       // We will return the coefficients and intercept which are the primary outputs.
+      // The `weights` property contains coefficients and the intercept at the end.
+      const coefficients = regression.weights.slice(0, -1).flat();
+      const intercept = regression.weights[regression.weights.length-1][0];
+
       const result = {
-        coefficients: regression.weights.map((w, i) => ({
-            name: i < finalFeatures.length ? finalFeatures[i] : 'intercept',
-            value: w[0]
-        })),
+        coefficients: finalFeatures.reduce((obj, feature, i) => {
+            obj[feature] = coefficients[i];
+            return obj;
+        }, {} as Record<string, number>),
+        intercept: intercept,
         rSquared: regression.score(X,y).r2,
         n: X.length,
-        // Note: Detailed stats like p-values, t-values are not directly available
-        // in this library and would require more complex statistical calculations.
       };
       
       logs.push('Step 4 Complete: Regression analysis finished successfully.');
