@@ -137,9 +137,6 @@ export const statisticsTool = ai.defineTool(
       
       const regression = new MultivariateLinearRegression(X, y);
 
-      // The 'ml-regression' library does not provide all the stats out-of-the-box like statsmodels.
-      // We will return the coefficients and intercept which are the primary outputs.
-      // The `weights` property contains coefficients and the intercept at the end.
       const coefficients = regression.weights.slice(0, -1).flat();
       const intercept = regression.weights[regression.weights.length-1][0];
 
@@ -149,7 +146,6 @@ export const statisticsTool = ai.defineTool(
             return obj;
         }, {} as Record<string, number>),
         intercept: intercept,
-        rSquared: regression.score(X,y).r2,
         n: X.length,
       };
       
@@ -159,7 +155,7 @@ export const statisticsTool = ai.defineTool(
 
     } catch (e: any) {
       logs.push(`💥 Unexpected error in statisticsTool: ${e.message || 'Unknown error'}`);
-      console.error('[statisticsTool]', e.stack);
+      console.error('[statisticsTool]', e);
       return { error: logs.join('\n'), sqlQuery };
     }
   }
