@@ -111,7 +111,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                             </div>
                            )}
                            {message.retrievedContext && (
-                            <div className="space-y-2 mt-2">
+                            <div className="space-y-2 mt-4">
                                 <h4 className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
                                     <Database className="h-4 w-4" />
                                     Retrieved Context
