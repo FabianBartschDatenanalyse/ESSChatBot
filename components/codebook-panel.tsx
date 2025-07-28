@@ -1,8 +1,9 @@
+
 "use client"
 
-import * as fs from 'fs';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useEffect, useState } from 'react';
+import { Input } from '@/components/ui/input';
+import { useEffect, useState, useMemo } from 'react';
 
 // This is a simple client-side text loader.
 // In a real-world scenario, you might fetch this from an API endpoint
@@ -8188,7 +8189,6 @@ edlves
 Highest level of education, Spain
 CARD 53
 What is the highest level of education you have achieved? (Spain)
-Please use this card
 Value 	Category
 0 	No studies/illiterate
 1 	Not completed primary education
@@ -8411,7 +8411,6 @@ edlvno
 Highest level of education, Norway
 CARD 53
 What is the highest level of education you have achieved? (Norway)
-Please use this card
 Value 	Category
 0 	No education
 1 	Primary education (1st. - 7th. class level)
@@ -8454,7 +8453,6 @@ edlvpt
 Highest level of education, Portugal
 CARD 53
 What is the highest level of education you have achieved? (Portugal)
-Please use this card
 Value 	Category
 1 	Nenhum
 2 	1 ciclo
@@ -8473,7 +8471,6 @@ edlvse
 Highest level of education, Sweden
 CARD 53
 What is the highest level of education you have achieved? (Sweden)
-Please use this card
 Value 	Category
 1 	Not finished elementary school
 2 	Elementary school, old
@@ -8809,6 +8806,865 @@ Value 	Category
 iscoco
 Occupation, ISCO88 (com)
 What is/was the name or title of your main job? In your main job, what kind of work do/did you do most of the time? What training or qualifications are/were needed for the job?
+WRITE IN
+Value 	Category
+100 	Armed forces
+1000 	Legislators, senior officials and managers
+1100 	Legislators and senior officials
+1110 	Legislators, senior government officials
+1140 	Senior officials of special-interest org
+1141 	Senior officials of political-party org
+1142 	Senior officials of economic-interest org
+1143 	Senior off human, special-interest org
+1200 	Corporate managers
+1210 	Directors and chief executives
+1220 	Production and operations managers
+1221 	Managers agriculture,hunting,forestry,fishing
+1222 	Managers in manufacturing
+1223 	Managers in construction
+1224 	Managers in wholesale and retail trade
+1225 	Managers in restaurants and hotels
+1226 	Managers transport,storage,communications
+1227 	Managers in business services enterprises
+1228 	Managers personal care,cleaning,rel serv
+1229 	Managers not elsewhere classified
+1230 	Other specialist managers
+1231 	Finance and administration managers
+1232 	Personnel and industrial relations managers
+1233 	Sales and marketing managers
+1234 	Advertising and public relations managers
+1235 	Supply and distribution managers
+1236 	Computing services managers
+1237 	Research and development managers
+1239 	Oth spec managers not elsewhere classified
+1300 	Managers of small enterprises
+1310 	Managers of small enterprises
+1311 	Mngr small ent agr,hunting,forestry,fishing
+1312 	Mngr small ent in manufacturing
+1313 	Mngr small ent in construction
+1314 	Mngr small ent wholesale and retail trade
+1315 	Mngr small ent of restaurants and hotels
+1316 	Mngr small ent transp,storage,comm
+1317 	Mngr small ent of business serv enterpr
+1318 	Mngr small ent pers care,cleaning,rel serv
+1319 	Mngr small ent not elsewhere classified
+2000 	Professionals
+2100 	Phys, mathem, engin science professionals
+2110 	Physics, chemists, related professionals
+2111 	Physicists and astronomers
+2112 	Meteorologists
+2113 	Chemists
+2114 	Geologists and geophysicists
+2120 	Mathem, stat, related professionals
+2121 	Mathematicians and related professionals
+2122 	Statisticians
+2130 	Computing professionals
+2131 	Comp systems designers,analysts,programmers
+2139 	Comp professionals not elsewhere classified
+2140 	Architects,engineers,related professionals
+2141 	Architects, town and traffic planners
+2142 	Civil engineers
+2143 	Electrical engineers
+2144 	Electronics, telecommunications engineers
+2145 	Mechanical engineers
+2146 	Chemical engineers
+2147 	Mining engineers, metall,rel professionals
+2148 	Cartographers and surveyors
+2149 	Arch, engin,rel prof not elsewhere class
+2200 	Life science and health professionals
+2210 	Life science professionals
+2211 	Biol,botan,zool and related professionals
+2212 	Pharm, pathol and related professionals
+2213 	Agronomists and related professionals
+2220 	Health professionals (except nursing)
+2221 	Medical doctors
+2222 	Dentists
+2223 	Veterinarians
+2224 	Pharmacists
+2229 	Health prof (not nursing) not elsew class
+2230 	Nursing and midwifery professionals
+2300 	Teaching professionals
+2310 	Coll,univ, higher educ teaching prof
+2320 	Secondary education teaching professionals
+2330 	Primary and pre-primary educ teaching prof
+2331 	Primary education teaching professionals
+2332 	Pre-primary educ teaching professionals
+2340 	Special education teaching professionals
+2350 	Other teaching professionals
+2351 	Education methods specialists
+2352 	School inspectors
+2359 	Other teaching prof not elsewhere class
+2400 	Other professionals
+2410 	Business professionals
+2411 	Accountants
+2412 	Personnel and careers professionals
+2419 	Business prof not elsewhere classified
+2420 	Legal professionals
+2421 	Lawyers
+2422 	Judges
+2429 	Legal prof not elsewhere classified
+2430 	Archiv,libr,related information prof
+2431 	Archivists and curators
+2432 	Librarians,related information prof
+2440 	Social science and related professionals
+2441 	Economists
+2442 	Sociologists, anthropologists, rel prof
+2443 	Philosophers,historians,political scientists
+2444 	Philologists, translators and interpreters
+2445 	Psychologists
+2446 	Social work professionals
+2450 	Writers and creative or performing artists
+2451 	Authors, journalists and other writers
+2452 	Sculptors, painters and related artists
+2453 	Composers, musicians and singers
+2454 	Choreographers and dancers
+2455 	Film, stage and related actors and directors
+2460 	Religious professionals
+2470 	Public service administrative professionals
+3000 	Technicians and associate professionals
+3100 	Physical,engineering science associate prof
+3110 	Physical,engineering science technicians
+3111 	Chemical and physical science technicians
+3112 	Civil engineering technicians
+3113 	Electrical engineering technicians
+3114 	Electronics,telecom engineering technicians
+3115 	Mechanical engineering technicians
+3116 	Chemical engineering technicians
+3117 	Mining and metallurgical technicians
+3118 	Draughtspersons
+3119 	Phys, engin science techn not elsew class
+3120 	Computer associate professionals
+3121 	Computer assistants
+3122 	Computer equipment operators
+3123 	Industrial robot controllers
+3130 	Optical and electronic equipment operators
+3131 	Photogr,image,sound rec equipment oper
+3132 	Broadcasting,telecom equipment operators
+3133 	Medical equipment operators
+3139 	Optical,electr equipm oper not elsew class
+3140 	Ship, aircraft controllers and technicians
+3141 	Ships' engineers
+3142 	Ships' deck officers and pilots
+3143 	Aircraft pilots, related associated prof
+3144 	Air traffic controllers
+3145 	Air traffic safety technicians
+3150 	Safety and quality inspectors
+3151 	Building and fire inspectors
+3152 	Safety, health and quality inspectors
+3200 	Life,science and health associate prof
+3210 	Life,science techn and rel associate prof
+3211 	Life science technicians
+3212 	Agronomy and forestry technicians
+3213 	Farming and forestry advisers
+3220 	Health associate prof (except nursing)
+3221 	Medical assistants
+3222 	Hygienists, health environmental officers
+3223 	Dieticians and nutritionists
+3224 	Optometrists and opticians
+3225 	Dental assistants
+3226 	Physiotherapists and rel associate prof
+3227 	Veterinary assistants
+3228 	Pharmaceutical assistants
+3229 	Health ass prof excpt nursing not else class
+3230 	Nursing midwifery associate prof
+3231 	Nursing associate professionals
+3232 	Midwifery associate professionals
+3300 	Teaching associate professionals
+3310 	Primary education teaching associate prof
+3320 	Pre-primary edu teaching associate prof
+3330 	Special education teaching associate prof
+3340 	Other teaching associate professionals
+3400 	Other associate professionals
+3410 	Finance and sales associate professionals
+3411 	Securities and finance dealers and brokers
+3412 	Insurance representatives
+3413 	Estate agents
+3414 	Travel consultants and organisers
+3415 	Technical and commercial sales rep
+3416 	Buyers
+3417 	Appraisers, valuers and auctioneers
+3419 	Finance,sales associate prof not else class
+3420 	Business services agents and trade brokers
+3421 	Trade brokers
+3422 	Clearing and forwarding agents
+3423 	Employment agents and labour contractors
+3429 	Busines,serv,agnts,trde brokr not else class
+3430 	Administrative associate professionals
+3431 	Adm secretaries, related associate prof
+3432 	Legal related business associate prof
+3433 	Bookkeepers
+3434 	Statistical, mathemat rel associate prof
+3440 	Custom,tax,related gov associate prof
+3441 	Customs and border inspectors
+3442 	Government tax and excise officials
+3443 	Government social benefits officials
+3444 	Government licensing officials
+3449 	Custom,tax,rel gov assoc prof not else class
+3450 	Police inspectors and detectives
+3460 	Social work associate professionals
+3470 	Artistic,entertainment,sports associate prof
+3471 	Decorators and commercial designers
+3472 	Radio, television and other announcers
+3473 	Street,nightclub,rel musicians,singers,dance
+3474 	Clowns,magicians,acrobats, rel associate prof
+3475 	Athletes,sportspers, related associate prof
+3480 	Religious associate professionals
+4000 	Clerks
+4100 	Office clerks
+4110 	Secretaries and keyboard-operating clerks
+4111 	Stenographers and typists
+4112 	Word-processor and related operators
+4113 	Data entry operators
+4114 	Calculating-machine operators
+4115 	Secretaries
+4120 	Numerical clerks
+4121 	Accounting and bookkeeping clerks
+4122 	Statistical and finance clerks
+4130 	Material-recording and transport clerks
+4131 	Stock clerks
+4132 	Production clerks
+4133 	Transport clerks
+4140 	Library, mail and related clerks
+4141 	Library and filing clerks
+4142 	Mail carriers and sorting clerks
+4143 	Coding, proof-reading and related clerks
+4144 	Scribes and related workers
+4190 	Other office clerks
+4200 	Customer services clerks
+4210 	Cashiers, tellers and related clerks
+4211 	Cashiers and ticket clerks
+4212 	Tellers and other counter clerks
+4213 	Bookmakers and croupiers
+4214 	Pawnbrokers and money-lenders
+4215 	Debt-collectors and related workers
+4220 	Client information clerks
+4221 	Travel agency and related clerks
+4222 	Receptionists and information clerks
+4223 	Telephone switchboard operators
+5000 	Service workers,shop, market sales workers
+5100 	Personal and protective services workers
+5110 	Travel attendants and related workers
+5111 	Travel attendants and travel stewards
+5112 	Transport conductors
+5113 	Travel guides
+5120 	Housekeeping, restaurant services workers
+5121 	Housekeepers and related workers
+5122 	Cooks
+5123 	Waiters, waitresses and bartenders
+5130 	Personal care and related workers
+5131 	Child-care workers
+5132 	Institution-based personal care workers
+5133 	Home-based personal care workers
+5139 	Personal care,related workers not else class
+5140 	Other personal services workers
+5141 	Hairdress,barber,beautician, related workers
+5142 	Companions and valets
+5143 	Undertakers and embalmers
+5149 	Other pers service workers not else class
+5160 	Protective services workers
+5161 	Fire-fighters
+5162 	Police officers
+5163 	Prison guards
+5169 	Protective services workers not else class
+5200 	Models, salespersons and demonstrators
+5210 	Fashion and other models
+5220 	Shop,stall,market salespers, demonstrators
+6000 	Skilled agricultural and fishery workers
+6100 	Skilled agricultural and fishery workers
+6110 	Market gardeners and crop growers
+6111 	Field crop and vegetable growers
+6112 	Gardeners, horticultural, nursery growers
+6120 	Animal producers and related workers
+6121 	Dairy and livestock producers
+6122 	Poultry producers
+6129 	Animal prod, related workers not else class
+6130 	Crop and animal producers
+6140 	Forestry and related workers
+6141 	Forestry workers and loggers
+6142 	Charcoal burners and related workers
+6150 	Fishery workers, hunters and trappers
+6151 	Aquatic-life cultivation workers
+6152 	Inland and coastal waters fishery workers
+6153 	Deep-sea fishery workers
+6154 	Hunters and trappers
+7000 	Craft and related trades workers
+7100 	Extraction and building trades workers
+7110 	Miners,shotfirers, stone cutters, carvers
+7111 	Miners and quarry workers
+7112 	Shotfirers and blasters
+7113 	Stone splitters, cutters and carvers
+7120 	Building frame and related trades workers
+7121 	Builders
+7122 	Bricklayers and stonemasons
+7123 	Concrete placer,concrete finisher, rel workrs
+7124 	Carpenters and joiners
+7129 	Build frame, rel trade worker not else class
+7130 	Build finishers, related trades workers
+7131 	Roofers
+7132 	Floor layers and tile setters
+7133 	Plasterers
+7134 	Insulation workers
+7135 	Glaziers
+7136 	Plumbers and pipe fitters
+7137 	Building and related electricians
+7139 	Build finisher,rel trde work not else class
+7140 	Painter,building struct cleaner,rel trde work
+7141 	Painters and related workers
+7143 	Building structure cleaners
+7200 	Metal, machinery related trades workers
+7210 	Metalm,welder,sheetmet,structmet prep,rel work
+7211 	Metal moulders and coremakers
+7212 	Welders and flamecutters
+7213 	Sheet-metal workers
+7214 	Structural-metal preparers and erectors
+7215 	Riggers and cable splicers
+7216 	Underwater workers
+7220 	Blacksmiths,tool-makers,related trad work
+7221 	Blacksmith, hammer-smith,forging-press work
+7222 	Tool-makers and related workers
+7223 	Machine-tool setters and setter-operators
+7224 	Metal wheelgrinder, polisher, tool sharpener
+7230 	Machinery mechanics and fitters
+7231 	Motor vehicle mechanics and fitters
+7232 	Aircraft engine mechanics and fitters
+7233 	Agric- or industrmachine mechanic and fitter
+7240 	Electric,electronic equip mech and fitter
+7241 	Electric mechanic, fitters and servicers
+7242 	Electronic mecanic, fitters and servicers
+7244 	Telegraph, teleph installers and servicers
+7245 	Electric line install,repairer,cable jointer
+7300 	Precision,handicraft,printing,rel trade work
+7310 	Precision workers in metal and rel materials
+7311 	Precision-instrument makers and repairers
+7312 	Musical instrument makers and tuners
+7313 	Jewellery and precious-metal workers
+7320 	Potters,glass-makers, related trades workers
+7321 	Abrasive wheel former,potter and rel workers
+7322 	Glass-makers,cutters,grinders and finishers
+7323 	Glass engravers and etchers
+7324 	Glass,ceramics and rel decorative painters
+7330 	Handicrft work wood,textile,leather,rel matr
+7331 	Handicrft work in wood and related material
+7332 	Handicrft work in textile,leather,rel mater
+7340 	Craft printing and related trades workers
+7341 	Compositors,typesetters, related workers
+7342 	Stereotypers and electrotypers
+7343 	Printing engravers and etchers
+7344 	Photographic and related workers
+7345 	Bookbinders and related workers
+7346 	Silk-screen,block,craft textile printers
+7400 	Other craft and related trades workers
+7410 	Food processing and related trades workers
+7411 	Butchers,fishmongers,related food preparers
+7412 	Bakers,pastry-cooks,confectionery maker
+7413 	Dairy products workers
+7414 	Fruit, vegetable and related preservers
+7415 	Food and beverage tasters and graders
+7416 	Tobacco preparers,tobacco products maker
+7420 	Wood treaters,cabinet-makers,rel trad work
+7421 	Wood treaters
+7422 	Cabinetmakers and related workers
+7423 	Woodworking machine setter,setter-operator
+7424 	Basketry weavers,brush makers,rel worker
+7430 	Textile,garment, related trades worker
+7431 	Fibre preparers
+7432 	Weavers, knitters and related workers
+7433 	Tailors, dressmakers and hatters
+7434 	Furriers and related workers
+7435 	Textile,leather,rel patternmakers, cutter
+7436 	Sewers, embroiderers and related workers
+7437 	Upholsterers and related workers
+7440 	Pelt,leather,shoemaking trades worker
+7441 	Pelt dressers, tanners and fellmongers
+7442 	Shoe-makers and related workers
+8000 	Plant and machine operators and assemblers
+8100 	Stationary plant and related operators
+8110 	Mining, mineral-processing-plant operator
+8111 	Mining plant operators
+8112 	Mineralore,stone-processing-plant operator
+8113 	Well drillers,borers and related worker
+8120 	Metal-processing plant operators
+8121 	Ore and metal furnace operators
+8122 	Metal melters,casters,rolling-mill operator
+8123 	Metal-heat-treating-plant operators
+8124 	Metal drawers and extruders
+8130 	Glass, ceramics,related plant operators
+8131 	Glass,ceramics kiln,related machine operator
+8139 	Glass,ceramic,rel plant operat not else class
+8140 	Wood-processing, papermaking-plant operator
+8141 	Wood-processing-plant operators
+8142 	Paper-pulp plant operators
+8143 	Papermaking-plant operators
+8150 	Chemical-processing-plant operators
+8151 	Crush,grind,chemicalmixing machinery operat
+8152 	Chemical-heat-treating-plant operators
+8153 	Chemical,filtering,separating-equip operator
+8154 	Chem-still,reactor opt,except petr, nat gas
+8155 	Petrol,natural gas refin plant operator
+8159 	Chemicalprocess,plant operat not else class
+8160 	Power-Prod. and related plant operators
+8161 	Power-production plant operators
+8162 	Steam-engine and boiler operators
+8163 	Incinerator,watertreatment,rel plant operator
+8170 	Industrial robot operators
+8200 	Machine operators and assemblers
+8210 	Metal,mineralproducts machine operator
+8211 	Machine-tool operators
+8212 	Cement, other mineral prod machine operator
+8220 	Chemical-products machine operators
+8221 	Pharmaceutical,toiletry-prod machine operat
+8222 	Ammunition,explosive products machine operat
+8223 	Metal finish, plating,coatingmachine operat
+8224 	Photographic-products machine operators
+8229 	Chemicalprod, machine operat not else class
+8230 	Rubber,plasticproducts machine operator
+8231 	Rubber-products machine operators
+8232 	Plastic-products machine operators
+8240 	Wood-products machine operators
+8250 	Printing,binding,paperprod machine operat
+8251 	Printing-machine operators
+8252 	Bookbinding-machine operators
+8253 	Paper-products machine operators
+8260 	Textile,fur,leatherprod machine operator
+8261 	Fibreprep,spinning winding-machine operat
+8262 	Weaving- and knitting-machine operators
+8263 	Sewing-machine operators
+8264 	Bleaching,dyeing,cleaning-machine operat
+8265 	Fur,leatherprep machine operat
+8266 	Shoemaking- and related machine operators
+8269 	Textl,fur,leatherprod mach operat n else clas
+8270 	Food,related products machine operator
+8271 	Meat, fishprocess machine operator
+8272 	Dairy-products machine operators
+8273 	Grain- and spice-milling-machine operators
+8274 	Baked g,cereal,chocolateprod machine operat
+8275 	Fruit,vegetable,nutprocess-machine operat
+8276 	Sugar production machine operators
+8277 	Tea, coffee, cocoaprocess-machine operat
+8278 	Brewer,wine, other beverage machine operat
+8279 	Tobacco production machine operators
+8280 	Assemblers
+8281 	Mechanical-machinery assemblers
+8282 	Electrical-equipment assemblers
+8283 	Electronic-equipment assemblers
+8284 	Metal,rubber,plastic-prod assemblers
+8285 	Wood and related products assemblers
+8286 	Paperboard,textile, related prod assembl
+8287 	Composite products assemblers
+8290 	Other machine operat not else class
+8300 	Drivers and mobile plant operators
+8310 	Locomotive engine drivers,related worker
+8311 	Locomotive engine drivers
+8312 	Railway brakers, signallers and shunters
+8320 	Motor vehicle drivers
+8321 	Motorcycle drivers
+8322 	Car, taxi and van drivers
+8323 	Bus and tram drivers
+8324 	Heavy truck and lorry drivers
+8330 	Agricultural,other mobile plant operator
+8331 	Motorised farm, forestry plant operator
+8332 	Earth-moving and related plant operators
+8333 	Crane, hoist and related plant operators
+8334 	Lifting-truck operators
+8340 	Ships' deck crews and related workers
+9000 	Elementary occupations
+9100 	Sales and services elementary occupations
+9110 	Street vendors and related workers
+9111 	Street vendors
+9113 	Door-to-door and telephone salespersons
+9120 	Shoe cleaning,other streetserv element occ
+9130 	Domestic,related helpers,cleaner,launderer
+9131 	Domestic helpers and cleaners
+9132 	Helper,cleaner in office,hotel,other establ
+9133 	Hand-launderers and pressers
+9140 	Building caretakers,window, rel cleaner
+9141 	Building caretakers
+9142 	Vehicle, window and related cleaners
+9150 	Messengers,porters doorkeepers,rel worker
+9151 	Messengers,package,luggage porter, deliverer
+9152 	Doorkeepers,watchpersons,related worker
+9153 	Vendingm,money collect, meter reader,rel work
+9160 	Garbage collectors and related labourers
+9161 	Garbage collectors
+9162 	Sweepers and related labourers
+9200 	Agricultural,fishery,related labourers
+9210 	Agricultural,fishery,related labourers
+9211 	Farm-hands and labourers
+9212 	Forestry labourers
+9213 	Fishery, hunting and trapping labourers
+9300 	Labourer mining,construction,manufact,transp
+9310 	Mining and construction labourers
+9311 	Mining and quarrying labourers
+9312 	Constr,mainten labour: roads,dams,sim constr
+9313 	Building construction labourers
+9320 	Manufacturing labourers
+9330 	Transport laborers and freight handlers
+66666 	Not applicable*
+77777 	Refusal*
+88888 	Don't know*
+99999 	No answer*
+
+*) Missing Value
+nacer1
+Industry, NACE rev.1
+What does/did the firm/organisation you work/worked for mainly make or do?
+WRITE IN. [if additional country-specific questions are required for national occupation and industry coding systems, add HERE]
+Value 	Category
+1 	Agriculture,hunting, related service activities
+2 	Forestry,logging,related service activities
+5 	Fishing,operation of fish hatcheries,fish farms
+10 	Mining of coal and lignite extraction of peat
+11 	Extraction of crude petroleum and natural gas
+12 	Mining of uranium and thorium ores
+13 	Mining of metal ores
+14 	Other mining and quarrying
+15 	Manufacture of food products and beverages
+16 	Manufacture of tobacco products
+17 	Manufacture of textiles
+18 	Manufacture wearing apparel,dressing,dyeing fur
+19 	Tanning and dressing of leather
+20 	Manufact wood,prod of wood,cork,except furniture
+21 	Manufacture of pulp, paper and paper products
+22 	Publishing,printing,reprod of recorded media
+23 	Manufacture coke,refined petr prod, nuclear fuel
+24 	Manufacture of chemicals and chemical products
+25 	Manufacture of rubber and plastic products
+26 	Manufacture of other non-metallic mineral prod
+27 	Manufacture of basic metals
+28 	Manufact fabric metal prod,except machin,equipm
+29 	Manufacture of machinery and equipment n.e.c.
+30 	Manufacture of office machinery and computers
+31 	Manufacture of electric machinery,apparatus
+32 	Manufact radio,television,communic equip apparat
+33 	Manufact medic,precisi,opt instr,watches,clocks
+34 	Manufacture motor vehicles,trailers,semitrailers
+35 	Manufacture of other transport equipment
+36 	Manufacture of furniture manufacturing n.e.c.
+37 	Recycling
+40 	Electricity, gas, steam and hot water supply
+41 	Collection, purification,distribution of water
+45 	Construction
+50 	Sale,mainten,repair motor vehicles,motorcycles
+51 	Wholesale trde,com trade,except m vehic,motorcycl
+52 	Retail trade,except motor vehicles,motorcycles
+55 	Hotels and restaurants
+60 	Land transport transport via pipelines
+61 	Water transport
+62 	Air transport
+63 	Supporting,auxiliary transp act travel agencies
+64 	Post and telecommunications
+65 	Financial intermed, except insurance,pension fund
+66 	Insurance,pension fund, except comp soc security
+67 	Activities auxiliary to financial intermediation
+70 	Real estate activities
+71 	Rent machine,equip without oper,of pers, hh good
+72 	Computer and related activities
+73 	Research and development, basic research
+74 	Other business activities
+75 	Public adm and defence,compulsory social security
+80 	Education
+85 	Health and social work
+90 	Sewage,refuse disposal, sanitation similar activ
+91 	Activities of membership organizations n.e.c.
+92 	Recreational, cultural and sporting activities
+93 	Other service activities
+95 	Private households with employed persons
+99 	Extra-territorial organizations and bodies
+666 	Not applicable*
+777 	Refusal*
+888 	Don't know*
+999 	No answer*
+
+*) Missing Value
+uemp3m
+Ever unemployed and seeking work for a period more than three months
+ASK ALL
+Have you ever been unemployed and seeking work for a period of more than three months?
+Value 	Category
+1 	Yes
+2 	No
+7 	Refusal*
+8 	Don't know*
+9 	No answer*
+
+*) Missing Value
+uemp12m
+Any period of unemployment and work seeking lasted 12 months or more
+Have any of these periods lasted for 12 months or more?
+Value 	Category
+1 	Yes
+2 	No
+6 	Not applicable*
+7 	Refusal*
+8 	Don't know*
+9 	No answer*
+
+*) Missing Value
+uemp5yr
+Any period of unemployment and work seeking within last 5 years
+Have any of these periods been within the past 5 years?
+Value 	Category
+1 	Yes
+2 	No
+6 	Not applicable*
+7 	Refusal*
+8 	Don't know*
+9 	No answer*
+
+*) Missing Value
+mbtru
+Member of trade union or similar organisation
+ASK ALL
+Are you or have you ever been a member of a trade union or similar organisation?
+PROMPT IN RELATION TO PRECODES
+Value 	Category
+1 	Yes, currently
+2 	Yes, previously
+3 	No
+7 	Refusal*
+8 	Don't know*
+9 	No answer*
+
+*) Missing Value
+hincsrc
+Main source of household income
+CARD 55
+Please consider the income of all household members and any income which may be received by the household as a whole. What is the main source of income in your household?
+Please use this card
+Value 	Category
+1 	Wages or salaries
+2 	Income from self-employment or farming
+3 	Pensions
+4 	Unemployment/redundancy benefit
+5 	Any other social benefits or grants
+6 	Income from investments, savings etc.
+7 	Income from other sources
+77 	Refusal*
+88 	Don't know*
+99 	No answer*
+
+*) Missing Value
+hinctnt
+Household's total net income, all sources
+CARD 56
+Using this card, if you add up the income from all sources, which letter describes your household's total net income? If you don't know the exact figure, please give an estimate. Use the part of the card that you know best: weekly, monthly or annual income.
+Value 	Category
+1 	J
+2 	R
+3 	C
+4 	M
+5 	F
+6 	S
+7 	K
+8 	P
+9 	D
+10 	H
+11 	U
+12 	N
+77 	Refusal*
+88 	Don't know*
+99 	No answer*
+
+*) Missing Value
+hincfel
+Feeling about household's income nowadays
+CARD 57
+Which of the descriptions on this card comes closest to how you feel about your household's income nowadays?
+Value 	Category
+1 	Living comfortably on present income
+2 	Coping on present income
+3 	Difficult on present income
+4 	Very difficult on present income
+7 	Refusal*
+8 	Don't know*
+9 	No answer*
+
+*) Missing Value
+brwmny
+Borrow money to make ends meet, difficult or easy
+CARD 58
+If for some reason you were in serious financial difficulties and had to borrow money to make ends meet, how difficult or easy would that be?
+Please use this card
+Value 	Category
+1 	Very difficult
+2 	Quite difficult
+3 	Neither easy nor difficult
+4 	Quite easy
+5 	Very easy
+7 	Refusal*
+8 	Don't know*
+9 	No answer*
+
+*) Missing Value
+partner
+Lives with husband/wife/partner at household grid
+ASK ALL INTERVIEWER CODE:
+INTERVIEWER CODE:
+Value 	Category
+1 	Lives with husband/wife/partner at F4
+2 	Does not
+9 	Not available*
+
+*) Missing Value
+edulvlpa
+Partner's highest level of education
+CARD 59
+What is the highest level of education your husband/wife/partner has achieved?
+Please use this card
+Value 	Category
+0 	Not possible to harmonise into 5-level ISCED
+1 	Less than lower secondary education (ISCED 0-1)
+2 	Lower secondary education completed (ISCED 2)
+3 	Upper secondary education completed (ISCED 3)
+4 	Post-secondary non-tertiary education completed (ISCED 4)
+5 	Tertiary education completed (ISCED 5-6)
+55 	Other
+66 	Not applicable*
+77 	Refusal*
+88 	Don't know*
+99 	No answer*
+
+*) Missing Value
+dngdkp
+Partner doing last 7 days: don't know
+CARD 60
+Which of the descriptions on this card applies to what he/she has been doing for the last 7 days? Don't know
+PROMPT Which others? CODE ALL THAT APPLY
+Value 	Category
+0 	Not marked
+1 	Marked
+dngrefp
+Partner doing last 7 days: refusal
+CARD 60
+Which of the descriptions on this card applies to what he/she has been doing for the last 7 days? Refusal
+PROMPT Which others? CODE ALL THAT APPLY
+Value 	Category
+0 	Not marked
+1 	Marked
+dngnapp
+Partner doing last 7 days: not applicable
+CARD 60
+Which of the descriptions on this card applies to what he/she has been doing for the last 7 days? Not applicable
+PROMPT Which others? CODE ALL THAT APPLY
+Value 	Category
+0 	Not marked
+1 	Marked
+dngnap
+Partner doing last 7 days: no answer
+CARD 60
+Which of the descriptions on this card applies to what he/she has been doing for the last 7 days? No answer
+PROMPT Which others? CODE ALL THAT APPLY
+Value 	Category
+0 	Not marked
+1 	Marked
+pdwrkp
+Partner doing last 7 days: paid work
+CARD 60
+Which of the descriptions on this card applies to what he/she has been doing for the last 7 days? In paid work (or away temporarily) (employee, self-employed, working for your family business)
+PROMPT Which others? CODE ALL THAT APPLY
+Value 	Category
+0 	Not marked
+1 	Marked
+edctnp
+Partner doing last 7 days: education
+CARD 60
+Which of the descriptions on this card applies to what he/she has been doing for the last 7 days? In education (not paid for by employer) even if on vacation
+PROMPT Which others? CODE ALL THAT APPLY
+Value 	Category
+0 	Not marked
+1 	Marked
+uemplap
+Partner doing last 7 days: unemployed, actively looking for job
+CARD 60
+Which of the descriptions on this card applies to what he/she has been doing for the last 7 days? Unemployed and actively looking for a job
+PROMPT Which others? CODE ALL THAT APPLY
+Value 	Category
+0 	Not marked
+1 	Marked
+uemplip
+Partner doing last 7 days: unemployed, not actively looking for job
+CARD 60
+Which of the descriptions on this card applies to what he/she has been doing for the last 7 days? Unemployed, wanting a job but not actively looking for a job
+PROMPT Which others? CODE ALL THAT APPLY
+Value 	Category
+0 	Not marked
+1 	Marked
+dsbldp
+Partner doing last 7 days: permanently sick or disabled
+CARD 60
+Which of the descriptions on this card applies to what he/she has been doing for the last 7 days? Permanently sick or disabled
+PROMPT Which others? CODE ALL THAT APPLY
+Value 	Category
+0 	Not marked
+1 	Marked
+rtrdp
+Partner doing last 7 days: retired
+CARD 60
+Which of the descriptions on this card applies to what he/she has been doing for the last 7 days? Retired
+PROMPT Which others? CODE ALL THAT APPLY
+Value 	Category
+0 	Not marked
+1 	Marked
+cmsrvp
+Partner doing last 7 days: community or military service
+CARD 60
+Which of the descriptions on this card applies to what he/she has been doing for the last 7 days? In community or military service
+PROMPT Which others? CODE ALL THAT APPLY
+Value 	Category
+0 	Not marked
+1 	Marked
+hswrkp
+Partner doing last 7 days: housework, looking after children, others
+CARD 60
+Which of the descriptions on this card applies to what he/she has been doing for the last 7 days? Doing housework, looking after children or other persons
+PROMPT Which others? CODE ALL THAT APPLY
+Value 	Category
+0 	Not marked
+1 	Marked
+dngothp
+Partner doing last 7 days: other
+CARD 60
+Which of the descriptions on this card applies to what he/she has been doing for the last 7 days? Other
+PROMPT Which others? CODE ALL THAT APPLY
+Value 	Category
+0 	Not marked
+1 	Marked
+mnactp
+Partner's main activity last 7 days
+ASK IF MORE THAN ONE CODED AT F35a CARD 60 AGAIN
+And which of the descriptions on this card best describes his/her situation (in the last 7 days)?
+Value 	Category
+1 	Paid work
+2 	Education
+3 	Unemployed, looking for job
+4 	Unemployed, not looking for job
+5 	Permanently sick or disabled
+6 	Retired
+7 	Community or military service
+8 	Housework, looking after children, others
+9 	Other
+66 	Not applicable*
+77 	Refusal*
+88 	Don't know*
+99 	No answer*
+
+*) Missing Value
+crpdwkp
+Partner, control paid work last 7 days
+ASK IF NOT IN PAID WORK AT F35a. IF IN PAID WORK (CODE 01), GO TO F37
+Can I just check, did he/she do any paid work (of an hour or more) in the last 7 days?
+Value 	Category
+1 	Yes
+2 	No
+6 	Not applicable*
+7 	Refusal*
+8 	Don't know*
+9 	No answer*
+
+*) Missing Value
+iscocop
+Occupation partner, ISCO88 (com)
+What is the name or title of his/her main job? In his/her main job, what kind of work does he/she do most of the time? What training or qualifications are needed for the job?
 WRITE IN
 Value 	Category
 100 	Armed forces
@@ -10525,6 +11381,8 @@ Value 	Category
 `;
 
 export default function CodebookPanel() {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
   const [content, setContent] = useState('');
 
   // We are using a hardcoded string here because Next.js/Webpack can have trouble
@@ -10532,9 +11390,20 @@ export default function CodebookPanel() {
   // likely be fetched from an API endpoint.
   useEffect(() => {
     setContent(codebookText);
+    setIsLoading(false);
   }, []);
 
-  if (!content) {
+  const filteredContent = useMemo(() => {
+    if (!searchTerm) {
+      return content;
+    }
+    return content
+      .split('\n')
+      .filter(line => line.toLowerCase().includes(searchTerm.toLowerCase()))
+      .join('\n');
+  }, [content, searchTerm]);
+
+  if (isLoading) {
     return (
       <div className="flex h-[65vh] flex-col items-center justify-center">
         <p className="text-muted-foreground">Loading codebook...</p>
@@ -10543,9 +11412,16 @@ export default function CodebookPanel() {
   }
   
   return (
-    <div className="flex h-[65vh] flex-col">
+    <div className="flex h-[65vh] flex-col gap-4">
+       <Input 
+        type="search"
+        placeholder="Search codebook..."
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        className="w-full"
+      />
       <ScrollArea className="flex-1 rounded-md border p-4">
-        <pre className="text-sm whitespace-pre-wrap font-sans">{content}</pre>
+        <pre className="text-sm whitespace-pre-wrap font-sans">{filteredContent}</pre>
       </ScrollArea>
     </div>
   );
