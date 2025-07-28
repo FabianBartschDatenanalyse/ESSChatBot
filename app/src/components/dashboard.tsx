@@ -14,6 +14,7 @@ import HistoryPanel from '@/components/history-panel';
 import { Button } from './ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import CodebookPanel from './codebook-panel';
+import ExamplesPanel from './examples-panel';
 
 export default function Dashboard() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -111,6 +112,7 @@ export default function Dashboard() {
              <TabsList className="mb-4">
                 <TabsTrigger value="assistant">AI Assistant</TabsTrigger>
                 <TabsTrigger value="codebook">Codebook</TabsTrigger>
+                <TabsTrigger value="examples">Examples</TabsTrigger>
             </TabsList>
             <Card>
               <CardContent className="p-0">
@@ -129,6 +131,9 @@ export default function Dashboard() {
                 </TabsContent>
                 <TabsContent value="codebook" className="mt-0 p-6">
                   <CodebookPanel />
+                </TabsContent>
+                <TabsContent value="examples" className="mt-0 p-6">
+                  <ExamplesPanel />
                 </TabsContent>
               </CardContent>
             </Card>
