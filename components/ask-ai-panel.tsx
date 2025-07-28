@@ -91,7 +91,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                 </Avatar>
               )}
               <div className={`rounded-lg p-3 max-w-[80%] ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
-                <div className="text-sm whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: message.content.replace(/```sql\n([\s\S]*?)```/, '') }} />
+                <div className="text-sm whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: message.content }} />
                 {(message.sqlQuery || message.retrievedContext) && message.role === 'assistant' && (
                    <Accordion type="single" collapsible className="w-full mt-2">
                       <AccordionItem value="details" className='border-0'>
