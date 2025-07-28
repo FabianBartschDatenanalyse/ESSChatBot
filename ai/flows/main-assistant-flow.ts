@@ -73,7 +73,7 @@ Based on the user's question, the conversation history, and the provided context
 
 When you get a result from a tool, analyze it and explain it to the user in a clear, easy-to-understand way.
 **CRITICAL RULE: If a tool returns an 'error' field, you MUST display that error message to the user verbatim (word-for-word) without any summarization or rephrasing. The user needs to see the exact debug logs. The error will contain a list of logs, which you must present clearly.**
-If a tool was used successfully, you MUST NOT present the final SQL query in your answer. It will be displayed separately.
+If a tool was used successfully, you MUST NOT present the final SQL query in your answer. The query will be displayed separately in the UI, do not include it in your textual response.
 
 **CRITICAL: Use the provided "Relevant Codebook Context" to find the exact column names needed for your tools (e.g., 'trstprl' for trust in parliament).**
 When invoking a tool, you MUST pass the relevant context to the \`codebookContext\` parameter of the tool.
@@ -96,22 +96,25 @@ ${retrievedContext}
 
     const answer = llmResponse.text;
     let sqlQuery: string | undefined;
-    
+
+    // Find the last valid SQL query from any tool call in the history
     if (llmResponse.history) {
-        const toolCallOutputs = llmResponse.history.filter(m => m.role === 'tool');
-        if (toolCallOutputs.length > 0) {
-            const lastToolOutput = toolCallOutputs[toolCallOutputs.length - 1];
-            try {
-                // Ensure toolContent is a string before attempting to parse
-                const toolContent = lastToolOutput.content[0]?.text;
-                if (toolContent && typeof toolContent === 'string') {
-                    const parsedContent = JSON.parse(toolContent);
-                    sqlQuery = parsedContent.sqlQuery;
-                }
-            } catch (e) {
-                console.warn("[mainAssistantFlow] Could not parse tool output to extract context.", e);
-            }
+      const toolOutputs = llmResponse.history
+        .filter(m => m.role === 'tool')
+        .map(m => m.content[0]?.text)
+        .filter((c): c is string => !!c); // Filter out non-string content
+
+      for (const output of toolOutputs.reverse()) { // Check from the last tool call backwards
+        try {
+          const parsed = JSON.parse(output);
+          if (typeof parsed.sqlQuery === 'string' && parsed.sqlQuery.trim() !== '') {
+            sqlQuery = parsed.sqlQuery;
+            break; // Found the last valid query, stop searching
+          }
+        } catch (e) {
+          // Ignore parsing errors for outputs that aren't valid JSON
         }
+      }
     }
 
     return {
