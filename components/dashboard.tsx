@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
@@ -6,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Conversation, Message } from '@/lib/types';
 
 import { SidebarProvider, Sidebar, SidebarInset, SidebarTrigger, SidebarContent, SidebarHeader, SidebarGroup, SidebarGroupLabel, SidebarSeparator } from '@/components/ui/sidebar';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import Logo from '@/components/logo';
 import AskAiPanel from '@/components/ask-ai-panel';
 import HistoryPanel from '@/components/history-panel';
@@ -102,37 +103,43 @@ export default function Dashboard() {
           <SidebarTrigger />
         </header>
         <main className="flex-1 p-4 sm:p-6">
-          <Tabs defaultValue="assistant">
-            <Card>
-              <CardHeader className='flex-row justify-between items-center'>
-                <div>
-                  <CardTitle className="font-headline">Data Tools</CardTitle>
-                  <CardDescription>Interact with the ESS dataset using AI or browse the codebook.</CardDescription>
-                </div>
-                <TabsList>
-                  <TabsTrigger value="assistant">AI Assistant</TabsTrigger>
-                  <TabsTrigger value="codebook">Codebook</TabsTrigger>
-                </TabsList>
-              </CardHeader>
-              <CardContent>
-                <TabsContent value="assistant">
+          <Tabs defaultValue="assistant" className="w-full">
+            <TabsList className="mb-4">
+              <TabsTrigger value="assistant">AI Assistant</TabsTrigger>
+              <TabsTrigger value="codebook">Codebook</TabsTrigger>
+            </TabsList>
+            <TabsContent value="assistant">
+              <div className="mb-4">
+                  <h1 className="text-2xl font-headline font-bold">Data Tools</h1>
+                  <p className="text-muted-foreground">Interact with the ESS dataset using AI or browse the codebook.</p>
+              </div>
+              <Card>
+                <CardContent className="p-0">
                   {activeConversation ? (
-                    <AskAiPanel
-                      key={activeConversation.id}
-                      conversation={activeConversation}
-                      onMessagesUpdate={updateConversation}
-                    />
-                  ) : (
-                      <div className="flex h-[65vh] flex-col items-center justify-center">
-                        <p className="text-muted-foreground">Select a conversation or start a new one.</p>
-                      </div>
-                  )}
-                </TabsContent>
-                <TabsContent value="codebook">
+                      <AskAiPanel
+                        key={activeConversation.id}
+                        conversation={activeConversation}
+                        onMessagesUpdate={updateConversation}
+                      />
+                    ) : (
+                        <div className="flex h-[65vh] flex-col items-center justify-center">
+                          <p className="text-muted-foreground">Select a conversation or start a new one.</p>
+                        </div>
+                    )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="codebook">
+               <div className="mb-4">
+                  <h1 className="text-2xl font-headline font-bold">Codebook</h1>
+                  <p className="text-muted-foreground">Browse and search the ESS dataset codebook.</p>
+              </div>
+              <Card>
+                <CardContent className="p-6">
                   <CodebookPanel />
-                </TabsContent>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </TabsContent>
           </Tabs>
         </main>
       </SidebarInset>
