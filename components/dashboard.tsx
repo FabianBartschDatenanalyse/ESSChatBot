@@ -11,6 +11,8 @@ import Logo from '@/components/logo';
 import AskAiPanel from '@/components/ask-ai-panel';
 import HistoryPanel from '@/components/history-panel';
 import { Button } from './ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import CodebookPanel from './codebook-panel';
 
 export default function Dashboard() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -100,27 +102,38 @@ export default function Dashboard() {
           <SidebarTrigger />
         </header>
         <main className="flex-1 p-4 sm:p-6">
-          <Card>
-            <CardHeader>
-              <div>
-                <CardTitle className="font-headline">AI Assistant</CardTitle>
-                <CardDescription>Get answers about the ESS dataset from our intelligent assistant.</CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {activeConversation ? (
-                <AskAiPanel
-                  key={activeConversation.id}
-                  conversation={activeConversation}
-                  onMessagesUpdate={updateConversation}
-                />
-              ) : (
-                  <div className="flex h-[65vh] flex-col items-center justify-center">
-                    <p className="text-muted-foreground">Select a conversation or start a new one.</p>
-                  </div>
-              )}
-            </CardContent>
-          </Card>
+          <Tabs defaultValue="assistant">
+            <Card>
+              <CardHeader className='flex-row justify-between items-center'>
+                <div>
+                  <CardTitle className="font-headline">Data Tools</CardTitle>
+                  <CardDescription>Interact with the ESS dataset using AI or browse the codebook.</CardDescription>
+                </div>
+                <TabsList>
+                  <TabsTrigger value="assistant">AI Assistant</TabsTrigger>
+                  <TabsTrigger value="codebook">Codebook</TabsTrigger>
+                </TabsList>
+              </CardHeader>
+              <CardContent>
+                <TabsContent value="assistant">
+                  {activeConversation ? (
+                    <AskAiPanel
+                      key={activeConversation.id}
+                      conversation={activeConversation}
+                      onMessagesUpdate={updateConversation}
+                    />
+                  ) : (
+                      <div className="flex h-[65vh] flex-col items-center justify-center">
+                        <p className="text-muted-foreground">Select a conversation or start a new one.</p>
+                      </div>
+                  )}
+                </TabsContent>
+                <TabsContent value="codebook">
+                  <CodebookPanel />
+                </TabsContent>
+              </CardContent>
+            </Card>
+          </Tabs>
         </main>
       </SidebarInset>
     </SidebarProvider>
