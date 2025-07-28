@@ -14,6 +14,7 @@ import HistoryPanel from '@/components/history-panel';
 import { Button } from './ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import CodebookPanel from './codebook-panel';
+import ExamplesPanel from './examples-panel';
 
 export default function Dashboard() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -103,43 +104,39 @@ export default function Dashboard() {
           <SidebarTrigger />
         </header>
         <main className="flex-1 p-4 sm:p-6">
-          <Tabs defaultValue="assistant" className="w-full">
-            <TabsList className="mb-4">
-              <TabsTrigger value="assistant">AI Assistant</TabsTrigger>
-              <TabsTrigger value="codebook">Codebook</TabsTrigger>
+           <div className="mb-4">
+                <h1 className="text-2xl font-headline font-bold">Data Tools</h1>
+                <p className="text-muted-foreground">Interact with the ESS dataset using AI or browse the codebook.</p>
+            </div>
+          <Tabs defaultValue="assistant">
+             <TabsList className="mb-4">
+                <TabsTrigger value="assistant">AI Assistant</TabsTrigger>
+                <TabsTrigger value="codebook">Codebook</TabsTrigger>
+                <TabsTrigger value="examples">Examples</TabsTrigger>
             </TabsList>
-            <TabsContent value="assistant">
-              <div className="mb-4">
-                  <h1 className="text-2xl font-headline font-bold">Data Tools</h1>
-                  <p className="text-muted-foreground">Interact with the ESS dataset using AI or browse the codebook.</p>
-              </div>
-              <Card>
-                <CardContent className="p-0">
+            <Card>
+              <CardContent className="p-0">
+                <TabsContent value="assistant" className="mt-0">
                   {activeConversation ? (
-                      <AskAiPanel
-                        key={activeConversation.id}
-                        conversation={activeConversation}
-                        onMessagesUpdate={updateConversation}
-                      />
-                    ) : (
-                        <div className="flex h-[65vh] flex-col items-center justify-center">
-                          <p className="text-muted-foreground">Select a conversation or start a new one.</p>
-                        </div>
-                    )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-            <TabsContent value="codebook">
-               <div className="mb-4">
-                  <h1 className="text-2xl font-headline font-bold">Codebook</h1>
-                  <p className="text-muted-foreground">Browse and search the ESS dataset codebook.</p>
-              </div>
-              <Card>
-                <CardContent className="p-6">
+                    <AskAiPanel
+                      key={activeConversation.id}
+                      conversation={activeConversation}
+                      onMessagesUpdate={updateConversation}
+                    />
+                  ) : (
+                      <div className="flex h-[65vh] flex-col items-center justify-center">
+                        <p className="text-muted-foreground">Select a conversation or start a new one.</p>
+                      </div>
+                  )}
+                </TabsContent>
+                <TabsContent value="codebook" className="mt-0 p-6">
                   <CodebookPanel />
-                </CardContent>
-              </Card>
-            </TabsContent>
+                </TabsContent>
+                <TabsContent value="examples" className="mt-0 p-6">
+                  <ExamplesPanel />
+                </TabsContent>
+              </CardContent>
+            </Card>
           </Tabs>
         </main>
       </SidebarInset>
