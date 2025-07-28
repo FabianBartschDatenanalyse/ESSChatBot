@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { History, PlusCircle } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import type { Conversation, Message } from '@/lib/types';
@@ -15,14 +15,18 @@ import { Button } from './ui/button';
 export default function Dashboard() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const isInitialMount = useRef(true);
+
 
   useEffect(() => {
     // On initial load, create a new conversation if none exist.
-    if (conversations.length === 0) {
+    // The isInitialMount ref prevents this from running twice in React's Strict Mode (dev).
+    if (isInitialMount.current && conversations.length === 0) {
       handleNewConversation();
     }
+    isInitialMount.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [conversations.length]);
   
   const handleNewConversation = () => {
     const newId = uuidv4();
