@@ -23,11 +23,11 @@
 # =============================================================================
 
 # --- BEARBEITEN SIE DIESE ZEILE ---
-GITHUB_URL="IHRE_GITHUB_REPOSITORY_URL_HIER"
+GITHUB_URL="https://github.com/FabianBartschDatenanalyse/studio.git"
 
 # --- AB HIER NICHTS MEHR ÄNDERN ---
 
-if [ "$GITHUB_URL" == "IHRE_GITHUB_REPOSITORY_URL_HIER" ]; then
+if [ "https://github.com/FabianBartschDatenanalyse/studio.git" == "IHRE_GITHUB_REPOSITORY_URL_HIER" ]; then
   echo "Fehler: Bitte bearbeiten Sie die Datei 'push-to-github.sh' und ersetzen Sie den Platzhalter 'IHRE_GITHUB_REPOSITORY_URL_HIER' mit Ihrer tatsächlichen GitHub-Repository-URL."
   exit 1
 fi
@@ -58,11 +58,11 @@ git branch -M main
 echo "Füge das Remote-Repository hinzu..."
 # Entfernen des 'origin'-Remotes, falls es bereits existiert, um Fehler zu vermeiden.
 git remote remove origin 2>/dev/null
-git remote add origin $GITHUB_URL
+git remote add origin https://github.com/FabianBartschDatenanalyse/studio.git
 
 echo "Pushe den Code auf GitHub..."
 git push -u origin main
 
 echo "✅ Fertig! Ihr Code wurde erfolgreich auf GitHub gepusht."
-echo "Sie können Ihr Repository hier einsehen: $GITHUB_URL"
+echo "Sie können Ihr Repository hier einsehen: https://github.com/FabianBartschDatenanalyse/studio.git"
 
