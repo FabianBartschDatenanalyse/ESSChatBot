@@ -97,24 +97,24 @@ ${retrievedContext}
     const answer = llmResponse.text;
     let sqlQuery: string | undefined;
 
-    // Find the last valid SQL query from any tool call in the history
-    if (llmResponse.history) {
-      const toolOutputs = llmResponse.history
-        .filter(m => m.role === 'tool')
-        .map(m => m.content[0]?.text)
-        .filter((c): c is string => !!c); // Filter out non-string content
+    // Robustly extract the last valid SQL query from any tool call in the history
+    const toolOutputs = llmResponse.history?.filter(m => m.role === 'tool') ?? [];
 
-      for (const output of toolOutputs.reverse()) { // Check from the last tool call backwards
+    for (const { content } of toolOutputs.reverse()) {
+        const text = content?.[0]?.text;
+        if (!text) continue;
+
         try {
-          const parsed = JSON.parse(output);
-          if (typeof parsed.sqlQuery === 'string' && parsed.sqlQuery.trim() !== '') {
-            sqlQuery = parsed.sqlQuery;
-            break; // Found the last valid query, stop searching
-          }
-        } catch (e) {
-          // Ignore parsing errors for outputs that aren't valid JSON
+            const parsed = JSON.parse(text);
+            // Look for common keys where a query might be stored.
+            const candidate = parsed.sqlQuery || parsed.query || parsed.executedQuery;
+            if (typeof candidate === 'string' && candidate.trim()) {
+                sqlQuery = candidate;
+                break; // Found the most recent valid query, stop searching.
+            }
+        } catch (_) {
+            // Ignore content that isn't valid JSON.
         }
-      }
     }
 
     return {
