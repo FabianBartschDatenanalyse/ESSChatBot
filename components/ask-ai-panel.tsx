@@ -58,15 +58,6 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
 
       let finalAnswer = result.answer;
       let finalSqlQuery = result.sqlQuery;
-
-      // Robust check: If sqlQuery is in the answer as a markdown block, extract it.
-      const sqlRegex = /```sql\n([\s\S]*?)\n```/;
-      const match = finalAnswer.match(sqlRegex);
-      if (match) {
-        finalSqlQuery = match[1];
-        // Remove the SQL block from the main answer to avoid duplication
-        finalAnswer = finalAnswer.replace(sqlRegex, '').trim();
-      }
       
       const assistantMessage: Message = {
         role: 'assistant',

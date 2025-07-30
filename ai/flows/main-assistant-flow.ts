@@ -13,7 +13,8 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {Message as GenkitMessage, z} from 'zod';
+import {Message as GenkitMessage} from 'genkit';
+import {z} from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
 import { statisticsTool } from '../tools/statistics-tool';
 import { MessageSchema } from '@/lib/types';
@@ -100,22 +101,28 @@ ${retrievedContext}
     // Robustly extract the last valid SQL query from any tool call in the history
     const toolOutputs = llmResponse.history?.filter(m => m.role === 'tool') ?? [];
 
-    for (const { content } of toolOutputs.reverse()) {
-        const text = content?.[0]?.text;
-        if (!text) continue;
+    for (const msg of toolOutputs.reverse()) {
+        const part = msg.content?.[0];
+        let candidate: string | undefined;
 
-        try {
-            const parsed = JSON.parse(text);
-            // Look for common keys where a query might be stored.
-            const candidate = parsed.sqlQuery || parsed.query || parsed.executedQuery;
-            if (typeof candidate === 'string' && candidate.trim()) {
-                sqlQuery = candidate;
-                break; // Found the most recent valid query, stop searching.
-            }
-        } catch (_) {
-            // Ignore content that isn't valid JSON.
+        // Modern Genkit/OpenAI way: structured response
+        if (part?.functionResponse) {
+            candidate = (part.functionResponse.response as any)?.sqlQuery;
+        } 
+        // Legacy or plain-text JSON way
+        else if (typeof part?.text === 'string') {
+            try {
+                const parsed = JSON.parse(part.text);
+                candidate = parsed.sqlQuery || parsed.query || parsed.executedQuery;
+            } catch { /* ignore parsing errors */ }
+        }
+
+        if (typeof candidate === 'string' && candidate.trim()) {
+            sqlQuery = candidate;
+            break; // Found the most recent valid query, stop searching.
         }
     }
+
 
     return {
       answer,
