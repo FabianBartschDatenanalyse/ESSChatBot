@@ -13,7 +13,8 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {Message as GenkitMessage, z} from 'zod';
+import type {Message as GenkitMessage} from 'genkit';
+import {z} from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
 import { statisticsTool } from '../tools/statistics-tool';
 import { MessageSchema } from '@/lib/types';
@@ -73,7 +74,7 @@ Based on the user's question, the conversation history, and the provided context
 
 When you get a result from a tool, analyze it and explain it to the user in a clear, easy-to-understand way.
 **CRITICAL RULE: If a tool returns an 'error' field, you MUST display that error message to the user verbatim (word-for-word) without any summarization or rephrasing. The user needs to see the exact debug logs.**
-If a tool was used successfully, you MUST also present the final SQL query that was used in a markdown code block.
+**CRITICAL RULE 2: You MUST NOT mention the SQL query in your response. The user interface will display the query automatically in a separate section. Do not write sentences like "The SQL query used was..." or include the query in a markdown block.**
 
 **CRITICAL: Use the provided "Relevant Codebook Context" to find the exact column names needed for your tools (e.g., 'trstprl' for trust in parliament).**
 When invoking a tool, you MUST pass the relevant context to the \`codebookContext\` parameter of the tool.
@@ -96,22 +97,19 @@ ${retrievedContext}
 
     const answer = llmResponse.text;
     let sqlQuery: string | undefined;
+
+    // Correctly extract the last executed SQL query from the tool calls in the history.
+    const toolOutputs = llmResponse.history?.filter(m => m.role === 'tool') ?? [];
     
-    if (llmResponse.history) {
-        const toolCallOutputs = llmResponse.history.filter(m => m.role === 'tool');
-        if (toolCallOutputs.length > 0) {
-            const lastToolOutput = toolCallOutputs[toolCallOutputs.length - 1];
-            try {
-                // Ensure toolContent is a string before attempting to parse
-                const toolContent = lastToolOutput.content[0]?.text;
-                if (toolContent && typeof toolContent === 'string') {
-                    const parsedContent = JSON.parse(toolContent);
-                    sqlQuery = parsedContent.sqlQuery;
-                }
-            } catch (e) {
-                console.warn("[mainAssistantFlow] Could not parse tool output to extract context.", e);
-            }
-        }
+    if (toolOutputs.length > 0) {
+      const lastToolOutput = toolOutputs[toolOutputs.length - 1];
+      const part = lastToolOutput.content?.[0];
+
+      // The `response` property from the tool's functionResponse holds the object returned by the tool.
+      if (part?.functionResponse) {
+          const responseData = part.functionResponse.response as any;
+          sqlQuery = responseData?.sqlQuery;
+      }
     }
 
     return {
