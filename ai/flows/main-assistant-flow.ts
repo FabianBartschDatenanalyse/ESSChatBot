@@ -73,7 +73,7 @@ You have access to two types of tools:
 Based on the user's question, the conversation history, and the provided context, you must decide which tool is most appropriate. If no tool is needed (e.g., for a greeting or general knowledge question), answer directly.
 
 When you get a result from a tool, analyze it and explain it to the user in a clear, easy-to-understand way.
-**CRITICAL RULE: If a tool returns an 'error' field, you MUST display that error message to the user verbatim (word-for-word) without any summarization or rephrasing. The user needs to see the exact debug logs. The error will contain a list of logs, which you must present clearly.**
+**CRITICAL RULE: If a tool returns an 'error' field, you MUST display that error message to the user verbatim (word-for-word) without any summarization or rephrasing. The user needs to see the exact debug logs.**
 **CRITICAL RULE 2: You MUST NOT mention the SQL query in your response. The user interface will display the query automatically in a separate section. Do not write sentences like "The SQL query used was..." or include the query in a markdown block.**
 
 **CRITICAL: Use the provided "Relevant Codebook Context" to find the exact column names needed for your tools (e.g., 'trstprl' for trust in parliament).**
@@ -103,14 +103,17 @@ ${retrievedContext}
 
     for (const msg of toolOutputs.reverse()) {
         const part = msg.content?.[0];
+        if (!part) continue;
+
         let candidate: string | undefined;
 
         // Genkit/OpenAI way: structured response
-        if (part?.functionResponse) {
-            candidate = (part.functionResponse.response as any)?.sqlQuery;
+        if (part.functionResponse) {
+            const responseData = part.functionResponse.response as any;
+            candidate = responseData?.sqlQuery;
         } 
         // Legacy or plain-text JSON way
-        else if (typeof part?.text === 'string') {
+        else if (typeof part.text === 'string') {
             try {
                 const parsed = JSON.parse(part.text);
                 candidate = parsed.sqlQuery || parsed.query || parsed.executedQuery;
