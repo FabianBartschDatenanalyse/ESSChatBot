@@ -104,10 +104,13 @@ ${retrievedContext}
     if (toolOutputs.length > 0) {
       const lastToolOutput = toolOutputs[toolOutputs.length - 1];
       const part = lastToolOutput.content?.[0];
+      
+      console.log('[mainAssistantFlow] Last tool output part:', JSON.stringify(part, null, 2));
 
       if (part?.functionResponse) {
           const responseData = part.functionResponse.response as any;
           sqlQuery = responseData?.sqlQuery;
+          console.log('[mainAssistantFlow] Extracted SQL Query:', sqlQuery);
       }
     }
 
