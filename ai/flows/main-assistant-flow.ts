@@ -105,8 +105,8 @@ ${retrievedContext}
       const lastToolOutput = toolOutputs[toolOutputs.length - 1];
       const part = lastToolOutput.content?.[0];
 
+      // The `response` property from the tool's functionResponse holds the object returned by the tool.
       if (part?.functionResponse) {
-          // The `response` property holds the object returned by the tool.
           const responseData = part.functionResponse.response as any;
           sqlQuery = responseData?.sqlQuery;
       }
