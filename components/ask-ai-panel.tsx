@@ -15,6 +15,7 @@ import { Loader2, Send } from 'lucide-react';
 import { Conversation, Message } from '@/lib/types';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Code2, Database } from 'lucide-react';
+import Logo from './logo';
 
 const formSchema = z.object({
   question: z.string().min(1, 'Question cannot be empty.'),
@@ -56,13 +57,10 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
         history: historyForApi
       });
 
-      let finalAnswer = result.answer;
-      let finalSqlQuery = result.sqlQuery;
-      
       const assistantMessage: Message = {
         role: 'assistant',
-        content: finalAnswer,
-        sqlQuery: finalSqlQuery,
+        content: result.answer,
+        sqlQuery: result.sqlQuery,
         retrievedContext: result.retrievedContext,
       };
       
@@ -88,9 +86,8 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
           {messages.map((message, index) => (
             <div key={index} className={`flex items-start gap-4 ${message.role === 'user' ? 'justify-end' : ''}`}>
               {message.role === 'assistant' && (
-                <Avatar className="h-9 w-9 border border-white bg-white">
-                  <AvatarImage src="https://firebasestorage.googleapis.com/v0/b/ess-navigator-nnbqm.firebasestorage.app/o/Screenshot%202025-07-28%20154109.png?alt=media&token=5ca90387-7aba-4a39-8a9c-c386d7aaaacf" alt="Assistant" className="p-1" />
-                  <AvatarFallback>AI</AvatarFallback>
+                <Avatar className="h-9 w-9 border border-primary/20 bg-white">
+                  <Logo className="p-1" />
                 </Avatar>
               )}
               <div className={`rounded-lg p-3 max-w-[80%] ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
@@ -138,9 +135,8 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
           ))}
           {isLoading && (
              <div className="flex items-start gap-4">
-                <Avatar className="h-9 w-9 border border-white bg-white">
-                  <AvatarImage src="https://firebasestorage.googleapis.com/v0/b/ess-navigator-nnbqm.firebasestorage.app/o/Screenshot%202025-07-28%20154109.png?alt=media&token=5ca90387-7aba-4a39-8a9c-c386d7aaaacf" alt="Assistant" className="p-1"/>
-                  <AvatarFallback>AI</AvatarFallback>
+                <Avatar className="h-9 w-9 border border-primary/20 bg-white">
+                   <Logo className="p-1" />
                 </Avatar>
                 <div className="rounded-lg p-3 bg-muted flex items-center">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
