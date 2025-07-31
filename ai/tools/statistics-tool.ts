@@ -19,9 +19,9 @@ const toolInputSchema = z.object({
 });
 
 const toolOutputSchema = z.object({
-  result: z.any().optional(),
-  error: z.string().optional(),
-  sqlQuery: z.string().optional().describe("The SQL query used to fetch the data for analysis.")
+  sqlQuery: z.string().optional().describe("The SQL query used to fetch the data for analysis."),
+  result: z.any().optional().describe("The result of the statistical analysis."),
+  error: z.string().optional().describe("An error message if the analysis failed."),
 });
 
 export const statisticsTool = ai.defineTool(

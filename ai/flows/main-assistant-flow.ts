@@ -106,21 +106,10 @@ ${retrievedContext}
       const part = lastToolOutput.content?.[0];
 
       if (part?.functionResponse) {
+          // The `response` property holds the object returned by the tool.
           const responseData = part.functionResponse.response as any;
           sqlQuery = responseData?.sqlQuery;
       }
-    }
-    
-    if (!sqlQuery) {
-        // Fallback: check the assistant message that triggered the tool call
-        const assistantCalls = llmResponse.history?.filter(m => m.role === 'model' && m.content.some(p => p.toolRequest)) ?? [];
-        if (assistantCalls.length > 0) {
-            const lastAssistantCall = assistantCalls[assistantCalls.length - 1];
-            const toolRequest = lastAssistantCall.content.find(p => p.toolRequest)?.toolRequest;
-            if (toolRequest) {
-                sqlQuery = (toolRequest.input as any)?.sqlQuery; // Or however the query is passed
-            }
-        }
     }
 
     return {

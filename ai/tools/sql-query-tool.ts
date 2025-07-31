@@ -10,7 +10,7 @@
 
 import { ai } from '@/ai/genkit';
 import { executeQuery } from '@/lib/data-service';
-import { z } from 'genkit';
+import { z } from 'zod';
 import { suggestSqlQuery, type SuggestSqlQueryOutput } from '../flows/suggest-sql-query';
 
 const toolInputSchema = z.object({
@@ -20,8 +20,8 @@ const toolInputSchema = z.object({
 
 const toolOutputSchema = z.object({
   sqlQuery: z.string().optional().describe("The SQL query that was executed to get the data."),
-  data: z.any().optional(),
-  error: z.string().optional(),
+  data: z.any().optional().describe("The data returned from the query."),
+  error: z.string().optional().describe("An error message if the query failed."),
 });
 
 export const executeQueryTool = ai.defineTool(
