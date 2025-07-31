@@ -113,7 +113,7 @@ ${retrievedContext}
 
     return {
       answer,
-      sqlQuery,
+      sqlQuery: sqlQuery, // Ensure the extracted query is assigned here
       retrievedContext: retrievedContext || undefined, // Always return the context we fetched
     };
   }
