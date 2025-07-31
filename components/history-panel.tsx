@@ -1,7 +1,7 @@
 "use client";
 
 import { ScrollArea } from "./ui/scroll-area";
-import type { Conversation } from './dashboard';
+import type { Conversation } from '@/lib/types';
 import { Button } from "./ui/button";
 import { cn } from "@/lib/utils";
 

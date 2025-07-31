@@ -95,7 +95,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
               )}
               <div className={`rounded-lg p-3 max-w-[80%] ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
                 <div className="text-sm whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: message.content }} />
-                {(message.sqlQuery || message.retrievedContext) && message.role === 'assistant' && (
+                {(message.sqlQuery || message.retrievedContext) && (
                    <Accordion type="single" collapsible className="w-full mt-2">
                       <AccordionItem value="details" className='border-0'>
                         <AccordionTrigger className='text-xs py-1 hover:no-underline'>

@@ -13,7 +13,7 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {Message as GenkitMessage} from 'genkit';
+import type {Message as GenkitMessage} from 'genkit';
 import {z} from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
 import { statisticsTool } from '../tools/statistics-tool';
@@ -105,7 +105,7 @@ ${retrievedContext}
         const part = msg.content?.[0];
         let candidate: string | undefined;
 
-        // Modern Genkit/OpenAI way: structured response
+        // Genkit/OpenAI way: structured response
         if (part?.functionResponse) {
             candidate = (part.functionResponse.response as any)?.sqlQuery;
         } 
