@@ -99,32 +99,27 @@ ${retrievedContext}
     let sqlQuery: string | undefined;
 
     // Correctly extract the last executed SQL query from the tool calls in the history.
-    // The query is located in the `tool` role message's `functionResponse`.
     const toolOutputs = llmResponse.history?.filter(m => m.role === 'tool') ?? [];
     
-    for (const msg of toolOutputs.reverse()) {
-        const part = msg.content?.[0];
-        if (!part) continue;
+    if (toolOutputs.length > 0) {
+      const lastToolOutput = toolOutputs[toolOutputs.length - 1];
+      const part = lastToolOutput.content?.[0];
 
-        let candidate: string | undefined;
-        
-        // This is the correct path for Genkit/OpenAI structured tool responses.
-        if (part.functionResponse) {
-            const responseData = part.functionResponse.response as any;
-            candidate = responseData?.sqlQuery;
-        } 
-        // Fallback for plain-text JSON responses (less common with modern providers).
-        else if (typeof part.text === 'string') {
-            try {
-                const parsed = JSON.parse(part.text);
-                candidate = parsed.sqlQuery || parsed.query || parsed.executedQuery;
-            } catch { /* ignore parsing errors */ }
-        }
-
-        if (typeof candidate === 'string' && candidate.trim()) {
-            sqlQuery = candidate;
-            console.log(`[mainAssistantFlow] Extracted SQL Query from tool response: ${sqlQuery}`);
-            break; // Found the most recent valid query, stop searching.
+      if (part?.functionResponse) {
+          const responseData = part.functionResponse.response as any;
+          sqlQuery = responseData?.sqlQuery;
+      }
+    }
+    
+    if (!sqlQuery) {
+        // Fallback: check the assistant message that triggered the tool call
+        const assistantCalls = llmResponse.history?.filter(m => m.role === 'model' && m.content.some(p => p.toolRequest)) ?? [];
+        if (assistantCalls.length > 0) {
+            const lastAssistantCall = assistantCalls[assistantCalls.length - 1];
+            const toolRequest = lastAssistantCall.content.find(p => p.toolRequest)?.toolRequest;
+            if (toolRequest) {
+                sqlQuery = (toolRequest.input as any)?.sqlQuery; // Or however the query is passed
+            }
         }
     }
 
