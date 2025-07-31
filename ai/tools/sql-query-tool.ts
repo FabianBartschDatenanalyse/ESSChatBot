@@ -21,7 +21,7 @@ const toolInputSchema = z.object({
 const toolOutputSchema = z.object({
   sqlQuery: z.string().optional().describe("The SQL query that was executed to get the data."),
   data: z.any().optional().describe("The data returned from the query."),
-  error: z.string().optional().describe("An error message if the query failed."),
+  error: z.string().optional().describe("An error message if the query failed, possibly containing debug logs."),
 });
 
 export const executeQueryTool = ai.defineTool(
@@ -33,10 +33,11 @@ export const executeQueryTool = ai.defineTool(
   },
   async (input) => {
     let sqlQuery = '';
-    console.log('[executeQueryTool] Received input:', JSON.stringify(input, null, 2));
+    const logs: string[] = ['[executeQueryTool] Received input: ' + JSON.stringify(input, null, 2)];
     
     try {
       // Step 1: Generate SQL using the provided question and retrieved context
+      logs.push('Step 1: Generating SQL query...');
       let suggestion: SuggestSqlQueryOutput;
       try {
         suggestion = await suggestSqlQuery({
@@ -44,44 +45,48 @@ export const executeQueryTool = ai.defineTool(
           codebook: input.codebookContext,
         });
         sqlQuery = suggestion.sqlQuery;
+        logs.push(`Step 1 Complete: Generated SQL: ${sqlQuery}`);
       } catch (suggestionError: any) {
-        const errorMsg = `❌ Failed to generate SQL query. Error: ${suggestionError.message || 'Unknown error'}`;
-        console.error('[executeQueryTool]', errorMsg);
-        return { error: errorMsg, sqlQuery };
+        logs.push(`❌ Failed to generate SQL query. Error: ${suggestionError.message || 'Unknown error'}`);
+        console.error('[executeQueryTool]', logs[logs.length-1]);
+        return { error: logs.join('\n'), sqlQuery };
       }
 
       if (!sqlQuery || sqlQuery.trim() === '') {
-        const errorMsg = '❌ AI model returned an empty SQL query.';
-        console.error('[executeQueryTool]', errorMsg);
-        return { error: errorMsg, sqlQuery };
+        logs.push('❌ AI model returned an empty SQL query.');
+        console.error('[executeQueryTool]', logs[logs.length-1]);
+        return { error: logs.join('\n'), sqlQuery };
       }
       
-      console.log(`[executeQueryTool] Generated SQL: ${sqlQuery}`);
-
       // Step 2: Execute SQL
+      logs.push('Step 2: Executing SQL query...');
       const result = await executeQuery(sqlQuery);
       
       if (result.error) {
-        console.error('[executeQueryTool] Query execution failed:', result.error);
-        return { error: `❌ Query execution failed: ${result.error}`, sqlQuery };
+        logs.push(`❌ Query execution failed: ${result.error}`);
+        console.error('[executeQueryTool]', logs[logs.length-1]);
+        return { error: logs.join('\n'), sqlQuery };
       }
 
       if (result.data) {
          if (result.data.length > 0) {
+            logs.push(`Step 2 Complete: Query returned ${result.data.length} rows.`);
             console.log(`[executeQueryTool] Query returned ${result.data.length} rows.`);
             return { data: result.data, sqlQuery };
          } else {
-            console.warn('[executeQueryTool] SQL executed successfully, but no data was returned.');
+            logs.push('Step 2 Complete: SQL executed successfully, but no data was returned.');
+            console.warn('[executeQueryTool]', logs[logs.length-1]);
             return { data: [], sqlQuery };
          }
       }
       
-      return { error: 'No data or error returned from executeQuery', sqlQuery };
+      logs.push('❌ No data or error returned from executeQuery.');
+      return { error: logs.join('\n'), sqlQuery };
 
     } catch (e: any) {
-      const errorMsg = `💥 Unexpected error in executeQueryTool: ${e.message || 'Unknown error'}`;
-      console.error('[executeQueryTool]', errorMsg);
-      return { error: errorMsg, sqlQuery };
+      logs.push(`💥 Unexpected error in executeQueryTool: ${e.message || 'Unknown error'}`);
+      console.error('[executeQueryTool]', logs[logs.length-1], e);
+      return { error: logs.join('\n'), sqlQuery };
     }
   }
 );

@@ -21,7 +21,7 @@ const toolInputSchema = z.object({
 const toolOutputSchema = z.object({
   sqlQuery: z.string().optional().describe("The SQL query used to fetch the data for analysis."),
   result: z.any().optional().describe("The result of the statistical analysis."),
-  error: z.string().optional().describe("An error message if the analysis failed."),
+  error: z.string().optional().describe("An error message if the analysis failed, possibly containing debug logs."),
 });
 
 export const statisticsTool = ai.defineTool(
@@ -32,30 +32,29 @@ export const statisticsTool = ai.defineTool(
     outputSchema: toolOutputSchema,
   },
   async (input) => {
-    console.log('[statisticsTool] Received input:', JSON.stringify(input, null, 2));
     let sqlQuery = '';
-    const logs: string[] = [`[statisticsTool] Starting ${input.analysisType} analysis.`];
+    const logs: string[] = [`[statisticsTool] Starting ${input.analysisType} analysis for target '${input.target}' with features [${input.features.join(', ')}]`];
 
     try {
       // 1. Construct the SQL query to fetch raw data
+      logs.push('Step 1: Constructing SQL query...');
       const allColumns = Array.from(new Set([input.target, ...input.features]));
-      sqlQuery = `SELECT ${allColumns.map(c => `${c}`).join(', ')} FROM "ESS1"`;
-      logs.push(`Step 1: Constructed initial SELECT clause: SELECT ${allColumns.join(', ')} FROM "ESS1"`);
+      sqlQuery = `SELECT ${allColumns.map(c => `"${c}"`).join(', ')} FROM "ESS1"`;
 
       const whereClauses: string[] = [];
       if (input.filters) {
         for (const [key, value] of Object.entries(input.filters)) {
-          whereClauses.push(`${key} = '${value}'`);
+          whereClauses.push(`"${key}" = '${value}'`);
         }
+        logs.push(`Added user-defined filters: ${JSON.stringify(input.filters)}`);
       }
-      logs.push(`Added user-defined filters: ${JSON.stringify(input.filters) || 'None'}`);
 
       // Add generic filters to exclude common missing values
       for (const col of allColumns) {
          if (col === 'gndr') {
-            whereClauses.push(`gndr IN ('1','2')`);
+            whereClauses.push(`"gndr" IN ('1','2')`);
          } else {
-            whereClauses.push(`${col} NOT IN ('7', '8', '9', '55', '66', '77', '88', '99', '555', '777', '888', '999', '9999')`);
+            whereClauses.push(`"${col}" NOT IN ('7', '8', '9', '77', '88', '99', '777', '888', '999', '9999')`);
          }
       }
       logs.push('Added generic filters for missing values.');
@@ -64,11 +63,9 @@ export const statisticsTool = ai.defineTool(
         sqlQuery += ` WHERE ${whereClauses.join(' AND ')}`;
       }
       logs.push(`Step 1 Complete: Final SQL Query: ${sqlQuery}`);
-      console.log(logs[logs.length-1]);
 
       // 2. Fetch data from Supabase
       logs.push('Step 2: Fetching data from Supabase...');
-      console.log(logs[logs.length-1]);
       const { data: queryData, error: queryError } = await executeQuery(sqlQuery);
 
       if (queryError) {
@@ -82,11 +79,9 @@ export const statisticsTool = ai.defineTool(
         return { error: logs.join('\n'), sqlQuery };
       }
       logs.push(`Step 2 Complete: Successfully fetched ${queryData.length} rows.`);
-      console.log(logs[logs.length-1]);
       
       // 3. Transform data for the regression library
       logs.push('Step 3: Transforming data for regression library...');
-      console.log(logs[logs.length-1]);
       const typedRows: Record<string, number>[] = [];
       for (const raw of queryData) {
         const row: Record<string, number> = {};
@@ -111,15 +106,18 @@ export const statisticsTool = ai.defineTool(
 
       const hasGndr = allColumns.includes('gndr');
       const hasAgea = allColumns.includes('agea');
+      const engineeredFeatures = new Set<string>();
 
       if (hasAgea) {
         const meanAge = typedRows.reduce((sum, r) => sum + (r.agea || 0), 0) / typedRows.length;
         logs.push(`Engineering feature: "agec" from "agea". Calculated mean age: ${meanAge.toFixed(2)}`);
         for (const r of typedRows) r.agec = r.agea - meanAge;
+        engineeredFeatures.add('agec');
       }
       if (hasGndr) {
          logs.push('Engineering feature: "female" from "gndr".');
          for (const r of typedRows) r.female = r.gndr === 2 ? 1 : 0;
+         engineeredFeatures.add('female');
       }
       
       const finalFeatures = input.features.map(f => {
@@ -131,31 +129,23 @@ export const statisticsTool = ai.defineTool(
       const X = typedRows.map(r => finalFeatures.map(f => r[f]));
       const y = typedRows.map(r => r[input.target]);
       
-      logs.push(`Step 3 Complete: Data prepared for regression with ${X.length} samples.`);
+      logs.push(`Step 3 Complete: Data prepared for regression with ${X.length} samples. Features: [${finalFeatures.join(', ')}]`);
 
       // 4. Perform regression analysis
       logs.push(`Step 4: Performing ${input.analysisType} analysis in Node.js...`);
-      console.log(logs[logs.length - 1]);
-      
       let analysisResult;
 
       if (input.analysisType === 'randomForestRegression') {
-        const model = new RandomForestRegression({
-            nEstimators: 10
-        });
+        const model = new RandomForestRegression({ nEstimators: 10 });
         model.train(X, y);
-        // Random Forest doesn't have simple coefficients/intercept. 
-        // We'll return a message about feature importance, which is more relevant.
-        // For now, we'll return a success message. A real implementation might extract feature importances.
         analysisResult = {
             model: "Random Forest Regression",
-            message: "Model trained successfully.",
+            message: "Model trained successfully. Feature importance not yet implemented.",
             n: X.length
         };
         logs.push('Random Forest model trained.');
       } else { // Default to linear regression
         const regression = new MultivariateLinearRegression(X, y.map(val => [val]));
-
         const coefficients = regression.weights.slice(0, -1).flat();
         const intercept = regression.weights[regression.weights.length-1][0];
   
@@ -168,10 +158,10 @@ export const statisticsTool = ai.defineTool(
           intercept: intercept,
           n: X.length,
         };
+        logs.push('Linear Regression complete. Coefficients calculated.');
       }
       
       logs.push('Step 4 Complete: Regression analysis finished successfully.');
-      console.log('[statisticsTool] Analysis successful.');
       return { result: analysisResult, sqlQuery };
 
     } catch (e: any) {
