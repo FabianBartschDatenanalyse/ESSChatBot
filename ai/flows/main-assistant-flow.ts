@@ -98,21 +98,22 @@ ${retrievedContext}
     const answer = llmResponse.text;
     let sqlQuery: string | undefined;
 
-    // Robustly extract the last valid SQL query from any tool call in the history
+    // Correctly extract the last executed SQL query from the tool calls in the history.
+    // The query is located in the `tool` role message's `functionResponse`.
     const toolOutputs = llmResponse.history?.filter(m => m.role === 'tool') ?? [];
-
+    
     for (const msg of toolOutputs.reverse()) {
         const part = msg.content?.[0];
         if (!part) continue;
 
         let candidate: string | undefined;
-
-        // Genkit/OpenAI way: structured response
+        
+        // This is the correct path for Genkit/OpenAI structured tool responses.
         if (part.functionResponse) {
             const responseData = part.functionResponse.response as any;
             candidate = responseData?.sqlQuery;
         } 
-        // Legacy or plain-text JSON way
+        // Fallback for plain-text JSON responses (less common with modern providers).
         else if (typeof part.text === 'string') {
             try {
                 const parsed = JSON.parse(part.text);
@@ -122,10 +123,10 @@ ${retrievedContext}
 
         if (typeof candidate === 'string' && candidate.trim()) {
             sqlQuery = candidate;
+            console.log(`[mainAssistantFlow] Extracted SQL Query from tool response: ${sqlQuery}`);
             break; // Found the most recent valid query, stop searching.
         }
     }
-
 
     return {
       answer,
