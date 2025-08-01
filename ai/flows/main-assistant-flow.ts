@@ -106,6 +106,7 @@ ${retrievedContext}
     const toolMessages = llmResponse.history?.filter(m => m.role === 'tool') ?? [];
     let sqlQuery: string | undefined;
 
+    // Robustly extract the last sqlQuery from the correct tool response
     for (let i = toolMessages.length - 1; i >= 0 && !sqlQuery; i--) {
       const parts = toolMessages[i].content ?? [];
       for (let j = parts.length - 1; j >= 0 && !sqlQuery; j--) {
@@ -135,3 +136,5 @@ ${retrievedContext}
     };
   }
 );
+
+    
