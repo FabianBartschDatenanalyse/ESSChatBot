@@ -75,7 +75,7 @@ export const statisticsTool = ai.defineTool(
       }
       if (!queryData || queryData.length === 0) {
         logs.push('❌ No data available for analysis after filtering.');
-        console.warn(logs[logs.length-1]);
+        console.warn('[statisticsTool]', logs.join('\n'));
         return { error: logs.join('\n'), sqlQuery };
       }
       logs.push(`Step 2 Complete: Successfully fetched ${queryData.length} rows.`);
@@ -99,7 +99,7 @@ export const statisticsTool = ai.defineTool(
 
       if (typedRows.length < 10) {
         logs.push(`❌ Not enough clean rows after numeric parsing. Found only ${typedRows.length}.`);
-        console.warn(logs[logs.length-1]);
+        console.warn('[statisticsTool]', logs.join('\n'));
         return { error: logs.join('\n'), sqlQuery };
       }
       logs.push(`Transformed data into ${typedRows.length} clean rows.`);
@@ -171,5 +171,3 @@ export const statisticsTool = ai.defineTool(
     }
   }
 );
-
-    

@@ -48,13 +48,13 @@ export const executeQueryTool = ai.defineTool(
         logs.push(`Step 1 Complete: Generated SQL: ${sqlQuery}`);
       } catch (suggestionError: any) {
         logs.push(`❌ Failed to generate SQL query. Error: ${suggestionError.message || 'Unknown error'}`);
-        console.error('[executeQueryTool]', logs[logs.length-1]);
+        console.error('[executeQueryTool]', logs.join('\n'));
         return { error: logs.join('\n'), sqlQuery };
       }
 
       if (!sqlQuery || sqlQuery.trim() === '') {
         logs.push('❌ AI model returned an empty SQL query.');
-        console.error('[executeQueryTool]', logs[logs.length-1]);
+        console.error('[executeQueryTool]', logs.join('\n'));
         return { error: logs.join('\n'), sqlQuery };
       }
       
@@ -64,7 +64,7 @@ export const executeQueryTool = ai.defineTool(
       
       if (result.error) {
         logs.push(`❌ Query execution failed: ${result.error}`);
-        console.error('[executeQueryTool]', logs[logs.length-1]);
+        console.error('[executeQueryTool]', logs.join('\n'));
         return { error: logs.join('\n'), sqlQuery };
       }
 
@@ -75,17 +75,18 @@ export const executeQueryTool = ai.defineTool(
             return { data: result.data, sqlQuery };
          } else {
             logs.push('Step 2 Complete: SQL executed successfully, but no data was returned.');
-            console.warn('[executeQueryTool]', logs[logs.length-1]);
+            console.warn('[executeQueryTool]', logs.join('\n'));
             return { data: [], sqlQuery };
          }
       }
       
       logs.push('❌ No data or error returned from executeQuery.');
+      console.error('[executeQueryTool]', logs.join('\n'));
       return { error: logs.join('\n'), sqlQuery };
 
     } catch (e: any) {
       logs.push(`💥 Unexpected error in executeQueryTool: ${e.message || 'Unknown error'}`);
-      console.error('[executeQueryTool]', logs[logs.length-1], e);
+      console.error('[executeQueryTool]', logs.join('\n'), e);
       return { error: logs.join('\n'), sqlQuery };
     }
   }
