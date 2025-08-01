@@ -12,9 +12,9 @@
  * - MainAssistantOutput - The return type for the mainAssistant function.
  */
 
-import {ai} from '@/ai/genkit';
-import type {Message as GenkitMessage} from 'genkit';
-import {z} from 'zod';
+import { ai } from '@/ai/genkit';
+import type { Message as GenkitMessage } from 'genkit';
+import { z } from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
 import { statisticsTool } from '../tools/statistics-tool';
 import { MessageSchema } from '@/lib/types';
@@ -52,11 +52,11 @@ const mainAssistantFlow = ai.defineFlow(
     // Step 1: Retrieve relevant context from the vector database.
     const searchResults = await searchCodebook(input.question, 10);
     const retrievedContext = searchResults
-        .map(result => `- ${result.content}`)
-        .join('\n');
-      
-    console.log(`[mainAssistantFlow] Retrieved context from vector DB:`, retrievedContext);
-    
+      .map(result => `- ${result.content}`)
+      .join('\n');
+
+    console.log('[mainAssistantFlow] Retrieved context from vector DB:', retrievedContext);
+
     // Convert Zod-validated history to Genkit's Message type, mapping 'assistant' to 'model'
     const history: GenkitMessage[] = (input.history || []).map(h => ({
       role: h.role === 'assistant' ? 'model' : h.role,
@@ -79,6 +79,8 @@ When you get a result from a tool, analyze it and explain it to the user in a cl
 **CRITICAL: Use the provided "Relevant Codebook Context" to find the exact column names needed for your tools (e.g., 'trstprl' for trust in parliament).**
 When invoking a tool, you MUST pass the relevant context to the \`codebookContext\` parameter of the tool.
 
+**IMPORTANT EXECUTION GUARDRAIL:** If the user's question requires aggregating, summarizing, or reporting numeric values from the dataset "ESS1" (e.g., averages, counts, sums by country or group), you MUST call \`executeQueryTool\` first to compute the numbers from the data. Do not estimate or invent numeric values.
+
 **Relevant Codebook Context:**
 \`\`\`
 ${retrievedContext}
@@ -96,21 +98,49 @@ ${retrievedContext}
     });
 
     const answer = llmResponse.text;
+
+    // ---------- ROBUSTE EXTRAKTION DER LETZTEN executeQueryTool-SQL ----------
     let sqlQuery: string | undefined;
 
-    // Correctly extract the last executed SQL query from the tool calls in the history.
-    const toolOutputs = llmResponse.history?.filter(m => m.role === 'tool') ?? [];
-    
-    if (toolOutputs.length > 0) {
-      const lastToolOutput = toolOutputs[toolOutputs.length - 1];
-      const part = lastToolOutput.content?.[0];
+    // Alle Tool-Nachrichten
+    const toolMessages = (llmResponse.history ?? []).filter((m: any) => m.role === 'tool');
 
-      // The `response` property from the tool's functionResponse holds the object returned by the tool.
-      if (part?.functionResponse) {
-          const responseData = part.functionResponse.response as any;
-          sqlQuery = responseData?.sqlQuery;
+    // Optionales Debugging:
+    // console.log('[mainAssistantFlow] Tool history:',
+    //   JSON.stringify(toolMessages, null, 2)
+    // );
+
+    // Rückwärts über Tool-Messages und deren Parts iterieren und gezielt die letzte executeQueryTool-Antwort nehmen
+    for (let i = toolMessages.length - 1; i >= 0 && !sqlQuery; i--) {
+      const parts = toolMessages[i].content ?? [];
+      for (let j = parts.length - 1; j >= 0 && !sqlQuery; j--) {
+        const part: any = parts[j];
+
+        // Variante A: functionResponse
+        const fr = part?.functionResponse;
+        if (fr?.name === 'executeQueryTool' && fr?.response?.sqlQuery) {
+          sqlQuery = fr.response.sqlQuery as string;
+          break;
+        }
+
+        // Variante B: toolResponse (manche Runtimes)
+        const tr = part?.toolResponse;
+        if (tr?.name === 'executeQueryTool' && tr?.response?.sqlQuery) {
+          sqlQuery = tr.response.sqlQuery as string;
+          break;
+        }
+
+        // Fallback: falls Payload anders serialisiert ist
+        const resp = fr?.response ?? tr?.response;
+        if ((fr?.name === 'executeQueryTool' || tr?.name === 'executeQueryTool') && resp) {
+          if (typeof resp.sqlQuery === 'string' && resp.sqlQuery.trim() !== '') {
+            sqlQuery = resp.sqlQuery;
+            break;
+          }
+        }
       }
     }
+    // -------------------------------------------------------------------------
 
     return {
       answer,

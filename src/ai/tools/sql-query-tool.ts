@@ -14,14 +14,14 @@ import { z } from 'zod';
 import { suggestSqlQuery, type SuggestSqlQueryOutput } from '../flows/suggest-sql-query';
 
 const toolInputSchema = z.object({
-    nlQuestion: z.string().describe('A natural language question that can be answered with a SQL query.'),
-    codebookContext: z.string().describe('Relevant context from the database codebook to use to construct the query.'),
+  nlQuestion: z.string().describe('A natural language question that can be answered with a SQL query.'),
+  codebookContext: z.string().describe('Relevant context from the database codebook to use to construct the query.'),
 });
 
 const toolOutputSchema = z.object({
-  sqlQuery: z.string().optional().describe("The SQL query that was executed to get the data."),
-  data: z.any().optional().describe("The data returned from the query."),
-  error: z.string().optional().describe("An error message if the query failed."),
+  sqlQuery: z.string().optional().describe('The SQL query that was executed to get the data.'),
+  data: z.any().optional().describe('The data returned from the query.'),
+  error: z.string().optional().describe('An error message if the query failed.'),
 });
 
 export const executeQueryTool = ai.defineTool(
@@ -67,13 +67,13 @@ export const executeQueryTool = ai.defineTool(
       }
 
       if (result.data) {
-         if (result.data.length > 0) {
-            console.log(`[executeQueryTool] Query returned ${result.data.length} rows.`);
-            return { data: result.data, sqlQuery };
-         } else {
-            console.warn('[executeQueryTool] SQL executed successfully, but no data was returned.');
-            return { data: [], sqlQuery };
-         }
+        if (result.data.length > 0) {
+          console.log(`[executeQueryTool] Query returned ${result.data.length} rows.`);
+          return { data: result.data, sqlQuery };
+        } else {
+          console.warn('[executeQueryTool] SQL executed successfully, but no data was returned.');
+          return { data: [], sqlQuery };
+        }
       }
       
       return { error: 'No data or error returned from executeQuery', sqlQuery };
