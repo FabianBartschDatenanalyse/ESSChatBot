@@ -96,27 +96,39 @@ ${retrievedContext}
     });
 
     const answer = llmResponse.text;
+    
+    console.log('[mainAssistantFlow] Tool history:\n', JSON.stringify(
+      llmResponse.history?.filter(m => m.role === 'tool'), null, 2
+    ));
+
+    const toolMessages = llmResponse.history?.filter(m => m.role === 'tool') ?? [];
     let sqlQuery: string | undefined;
 
-    // Correctly extract the last executed SQL query from the tool calls in the history.
-    const toolOutputs = llmResponse.history?.filter(m => m.role === 'tool') ?? [];
-    
-    if (toolOutputs.length > 0) {
-      const lastToolOutput = toolOutputs[toolOutputs.length - 1];
-      const part = lastToolOutput.content?.[0];
-      
-      console.log('[mainAssistantFlow] Last tool output part:', JSON.stringify(part, null, 2));
+    for (let i = toolMessages.length - 1; i >= 0 && !sqlQuery; i--) {
+      const parts = toolMessages[i].content ?? [];
+      for (let j = parts.length - 1; j >= 0 && !sqlQuery; j--) {
+        const part: any = parts[j];
 
-      if (part?.functionResponse) {
-          const responseData = part.functionResponse.response as any;
-          sqlQuery = responseData?.sqlQuery;
-          console.log('[mainAssistantFlow] Extracted SQL Query:', sqlQuery);
+        // Genkit / function-style response
+        const fr = part?.functionResponse;
+        if (fr?.name === 'executeQueryTool' && fr?.response?.sqlQuery) {
+          sqlQuery = fr.response.sqlQuery as string;
+          break;
+        }
+
+        // Fallback für tool-style response (manche Runtimes nutzen 'toolResponse')
+        const tr = part?.toolResponse;
+        if (tr?.name === 'executeQueryTool' && tr?.response?.sqlQuery) {
+          sqlQuery = tr.response.sqlQuery as string;
+          break;
+        }
       }
     }
 
+
     return {
       answer,
-      sqlQuery: sqlQuery, // Ensure the extracted query is assigned here
+      sqlQuery: sqlQuery,
       retrievedContext: retrievedContext || undefined, // Always return the context we fetched
     };
   }
