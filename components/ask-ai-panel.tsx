@@ -168,5 +168,3 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
     </div>
   );
 }
-
-    

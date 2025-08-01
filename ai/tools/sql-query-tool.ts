@@ -90,5 +90,3 @@ export const executeQueryTool = ai.defineTool(
     }
   }
 );
-
-    
