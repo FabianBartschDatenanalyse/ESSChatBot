@@ -12,7 +12,7 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {Message, z} from 'zod';
+import { z } from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
 import { searchCodebook } from '@/lib/vector-search';
 

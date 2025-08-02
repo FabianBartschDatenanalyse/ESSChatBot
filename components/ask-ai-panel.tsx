@@ -60,7 +60,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
       const assistantMessage: Message = {
         role: 'assistant',
         content: result.answer,
-        sqlQuery: result.sqlQuery,
+        sqlQuery: result.sqlQuery || (typeof (result as any) === 'object' && (result as any).sqlQuery) || '',
         retrievedContext: result.retrievedContext,
       };
       
@@ -99,7 +99,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                           Show Details
                         </AccordionTrigger>
                         <AccordionContent>
-                           {message.sqlQuery && (
+                           {message.sqlQuery && message.sqlQuery.trim().length > 0 && (
                             <div className="space-y-2 mt-2">
                                 <h4 className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
                                     <Code2 className="h-4 w-4" />
@@ -108,6 +108,17 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                                 <pre className="p-2 bg-background/50 rounded-md text-xs overflow-x-auto">
                                     <code className="font-mono">{message.sqlQuery}</code>
                                 </pre>
+                            </div>
+                           )}
+                           {(!message.sqlQuery || message.sqlQuery.trim().length === 0) && (
+                            <div className="space-y-2 mt-2">
+                              <h4 className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+                                <Code2 className="h-4 w-4" />
+                                SQL Query
+                              </h4>
+                              <pre className="p-2 bg-background/50 rounded-md text-xs overflow-x-auto">
+                                <code className="font-mono text-muted-foreground">Not provided by the tool.</code>
+                              </pre>
                             </div>
                            )}
                            {message.retrievedContext && (
