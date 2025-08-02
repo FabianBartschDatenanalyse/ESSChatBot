@@ -110,24 +110,42 @@ ${retrievedContext}
 
     // Robustly extract the last sqlQuery from the correct tool response
     for (let i = toolMessages.length - 1; i >= 0 && !sqlQuery; i--) {
-      const parts = toolMessages[i].content ?? [];
-      for (let j = parts.length - 1; j >= 0 && !sqlQuery; j--) {
-        const part: any = parts[j];
-
-        // Genkit / function-style response
-        const fr = part?.functionResponse;
-        if (fr?.name === 'executeQueryTool' && fr?.response?.sqlQuery) {
-          sqlQuery = fr.response.sqlQuery as string;
-          break;
-        }
-
-        // Fallback for tool-style response (manche Runtimes nutzen 'toolResponse')
-        const tr = part?.toolResponse;
-        if (tr?.name === 'executeQueryTool' && tr?.response?.sqlQuery) {
-          sqlQuery = tr.response.sqlQuery as string;
+      const toolMessage = toolMessages[i];
+      if (toolMessage.toolRequest) {
+        // Look for tool output in subsequent messages
+        const toolResponse = llmResponse.history?.find(
+          (m) => m.role === 'tool' && m.toolResponse?.ref === toolMessage.toolRequest.ref
+        );
+        
+        const output = toolResponse?.toolResponse?.output;
+        if (typeof output === 'object' && output !== null && 'sqlQuery' in output) {
+          sqlQuery = (output as any).sqlQuery as string;
           break;
         }
       }
+    }
+    
+    // Fallback for older Genkit versions or different response structures
+    if (!sqlQuery) {
+        for (let i = toolMessages.length - 1; i >= 0 && !sqlQuery; i--) {
+            const parts = toolMessages[i].content ?? [];
+            for (let j = parts.length - 1; j >= 0 && !sqlQuery; j--) {
+                const part: any = parts[j];
+                // Genkit / function-style response
+                const fr = part?.functionResponse;
+                if (fr?.name === 'executeQueryTool' && fr?.response?.sqlQuery) {
+                sqlQuery = fr.response.sqlQuery as string;
+                break;
+                }
+
+                // Fallback for tool-style response
+                const tr = part?.toolResponse;
+                if (tr?.name === 'executeQueryTool' && tr?.response?.sqlQuery) {
+                sqlQuery = tr.response.sqlQuery as string;
+                break;
+                }
+            }
+        }
     }
 
 
@@ -138,3 +156,5 @@ ${retrievedContext}
     };
   }
 );
+
+    
