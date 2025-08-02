@@ -118,7 +118,12 @@ const mainAssistantFlow = ai.defineFlow(
     });
 
     const answer = finalLlmResponse.text;
-
+    console.log('[mainAssistantFlow] Returning to frontend:', JSON.stringify({
+      answer,
+      sqlQuery: toolOutput.sqlQuery,
+      retrievedContext: toolOutput.retrievedContext,
+    }, null, 2));
+    
     return {
         answer,
         sqlQuery: toolOutput.sqlQuery,

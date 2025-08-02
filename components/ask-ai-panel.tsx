@@ -57,6 +57,8 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
         history: historyForApi
       });
 
+      console.log('[AskAiPanel] Result from mainAssistant:', result); // <--- HIER
+
       const assistantMessage: Message = {
         role: 'assistant',
         content: result.answer,

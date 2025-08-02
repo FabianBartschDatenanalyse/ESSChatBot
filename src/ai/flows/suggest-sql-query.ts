@@ -66,7 +66,18 @@ const prompt = ai.definePrompt({
   {{{codebook}}}
   \`\`\`
 
-  Based on all the above, generate the SQL query.`,
+  Based on all the above, generate the SQL query and return it in the following JSON format:
+
+{
+  "sqlQuery": "your SQL query here"
+}
+
+If you cannot generate a query, return:
+
+{
+  "sqlQuery": ""
+}
+`,
 });
 
 
@@ -79,6 +90,14 @@ const suggestSqlQueryFlow = ai.defineFlow(
   async input => {
     console.log('[suggestSqlQueryFlow] Received input:', JSON.stringify(input, null, 2));
     const {output} = await prompt(input);
+
+
+    if (!output?.sqlQuery || typeof output.sqlQuery !== 'string') {
+      console.error('[suggestSqlQueryFlow] Invalid output from LLM:', output);
+      throw new Error('❌ LLM did not return a valid sqlQuery string.');
+    }
+
+    
     console.log('[suggestSqlQueryFlow] LLM output:', JSON.stringify(output, null, 2));
     return output!;
   }
