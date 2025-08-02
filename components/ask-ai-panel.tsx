@@ -110,7 +110,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                                 </pre>
                             </div>
                            )}
-                           {(!message.sqlQuery || message.sqlQuery.trim().length === 0) && (
+                           {(!message.sqlQuery || message.sqlQuery.trim().length === 0) && message.role === 'assistant' && (
                             <div className="space-y-2 mt-2">
                               <h4 className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
                                 <Code2 className="h-4 w-4" />

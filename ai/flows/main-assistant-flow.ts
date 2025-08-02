@@ -121,7 +121,7 @@ ${retrievedContext}
           break;
         }
 
-        // Fallback für tool-style response (manche Runtimes nutzen 'toolResponse')
+        // Fallback for tool-style response (manche Runtimes nutzen 'toolResponse')
         const tr = part?.toolResponse;
         if (tr?.name === 'executeQueryTool' && tr?.response?.sqlQuery) {
           sqlQuery = tr.response.sqlQuery as string;
