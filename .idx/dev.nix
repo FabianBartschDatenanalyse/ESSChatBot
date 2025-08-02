@@ -9,6 +9,7 @@
     pkgs.zulu
     pkgs.docker
     pkgs.sudo
+    pkgs.corepack
   ];
   # Sets environment variables in the workspace
   env = {};

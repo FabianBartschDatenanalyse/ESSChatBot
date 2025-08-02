@@ -127,6 +127,8 @@ WHERE ${placeholderColumns[0]} NOT IN (${missingCodes})
       console.log(`[executeQueryTool] Generated SQL: ${sqlQuery}`);
       injectedSql = sqlQuery || injectedSql;
 
+      console.log('[executeQueryTool] FINAL SQL QUERY:', `\n${sqlQuery}`);
+
       // Step 3: Execute SQL
       console.log('[executeQueryTool] Executing SQL via data-service.executeQuery...');
       const result = await executeQuery(sqlQuery);
@@ -159,3 +161,5 @@ WHERE ${placeholderColumns[0]} NOT IN (${missingCodes})
     }
   }
 );
+
+

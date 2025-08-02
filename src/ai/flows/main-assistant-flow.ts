@@ -109,7 +109,7 @@ const mainAssistantFlow = ai.defineFlow(
     Now, formulate a final, user-friendly answer based on the tool's output.
     - If the tool returned data, analyze and explain it clearly.
     - If the tool returned an error, state the error message clearly to the user.
-    - Do NOT include the SQL query or the retrieved context in your final response.
+    - Do include the SQL query or the retrieved context in your final response under Show Details.
     - Your entire response should be just the natural language answer.`;
     
     const finalLlmResponse = await ai.generate({
