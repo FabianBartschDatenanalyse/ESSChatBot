@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Loader2, Send } from 'lucide-react';
-import { Conversation, Message } from '@/lib/types';
+import { type Conversation, type Message } from '@/lib/types';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Code2, Database } from 'lucide-react';
 import Logo from './logo';
@@ -60,7 +60,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
       const assistantMessage: Message = {
         role: 'assistant',
         content: result.answer,
-        sqlQuery: result.sqlQuery || (typeof (result as any) === 'object' && (result as any).sqlQuery) || '',
+        sqlQuery: result.sqlQuery,
         retrievedContext: result.retrievedContext,
       };
       
