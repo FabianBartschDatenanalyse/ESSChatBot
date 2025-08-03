@@ -2,41 +2,28 @@
 /**
  * @fileOverview The main AI assistant agent.
  *
- * This file defines the primary agent for the application. It uses a RAG approach by first retrieving
- * relevant context from the vector DB, then deciding whether to use tools (SQL execution or statistics),
- * or answer directly when no tools are needed.
+ * This file defines the primary agent for the application. It uses a RAG approach by first using the
+ * codebook retrieval tool to find relevant context before deciding whether to use other
+ * tools (like querying the database) or answer from its general knowledge.
  *
  * - mainAssistant - The primary function that powers the AI assistant.
  * - MainAssistantInput - The input type for the mainAssistant function.
  * - MainAssistantOutput - The return type for the mainAssistant function.
  */
 
-import { ai } from '../genkit';
-import type { Message as GenkitMessage } from 'genkit';
+import {ai} from '@/ai/genkit';
 import { z } from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
-import { statisticsTool } from '../tools/statistics-tool';
-
-// Temporary fallback until src/lib/vector-search exists.
-// This naive implementation returns empty context to keep the flow compiling.
-async function searchCodebook(question: string, limit: number): Promise<Array<{ content: string }>> {
-  console.warn('[mainAssistantFlow] searchCodebook shim in use. Create src/lib/vector-search.ts and export searchCodebook to replace this stub.');
-  return [];
-}
+import { searchCodebook } from '@/lib/vector-search';
 
 const MessageSchema = z.object({
-  role: z.enum(['user', 'assistant', 'tool']),
-  content: z.string(),
-  sqlQuery: z.string().optional(),
-  retrievedContext: z.string().optional(),
+    role: z.enum(['user', 'assistant', 'tool']),
+    content: z.string(),
 });
-
-// Omit context fields from the history schema to prevent token overflow.
-const HistoryMessageSchema = MessageSchema.omit({ sqlQuery: true, retrievedContext: true });
 
 const MainAssistantInputSchema = z.object({
   question: z.string().describe("The user's current question."),
-  history: z.array(HistoryMessageSchema).optional().describe('The conversation history.'),
+  history: z.array(MessageSchema).optional().describe("The conversation history."),
 });
 export type MainAssistantInput = z.infer<typeof MainAssistantInputSchema>;
 
@@ -51,101 +38,96 @@ export async function mainAssistant(input: MainAssistantInput): Promise<MainAssi
   return mainAssistantFlow(input);
 }
 
+// Define a schema for the question reformulation
+const ReformulatedQuestionSchema = z.object({
+    reformulatedQuestion: z.string().describe("The reformulated, self-contained question for the tool."),
+    requiresTool: z.boolean().describe("Whether the question requires using the database tool."),
+});
+
 const mainAssistantFlow = ai.defineFlow(
   {
     name: 'mainAssistantFlow',
     inputSchema: MainAssistantInputSchema,
     outputSchema: MainAssistantOutputSchema,
   },
-  async (input: MainAssistantInput) => {
+  async (input) => {
     console.log('[mainAssistantFlow] Received input:', JSON.stringify(input, null, 2));
 
-    // Step 1: Retrieve relevant context from the vector database.
-    // Note: vector-search lives under src/lib/vector-search.ts (alias '@/lib/vector-search').
-    const searchResults = await searchCodebook(input.question, 10);
-    const retrievedContext = searchResults.map((r) => `- ${r.content}`).join('\n');
-    console.log('[mainAssistantFlow] Retrieved context length:', retrievedContext.length);
+    // Step 1: Decide if a tool is needed and reformulate the question if necessary.
+    const reformulationPrompt = `You are an expert at processing conversations. Your task is to determine if the user's latest question requires database access and to reformulate it into a self-contained question if it's a follow-up.
 
-    // Convert history to Genkit's Message type, mapping 'assistant' to 'model'
-    const history: GenkitMessage[] = (input.history || []).map((h: z.infer<typeof MessageSchema>) => ({
-      role: h.role === 'assistant' ? 'model' : h.role,
-      content: [{ text: h.content }],
-    }));
+    Conversation History:
+    ${(input.history || []).map(h => `${h.role}: ${h.content}`).join('\n')}
 
-    const systemPrompt = `You are an expert data analyst and assistant for the European Social Survey (ESS).
+    User's Latest Question: "${input.question}"
 
-You have access to two tools:
-1) executeQueryTool: Use this to fetch, count, average, or otherwise compute numbers from the ESS1 table.
-2) statisticsTool: Use this for regression or modeling questions (linear or random forest).
+    Analyze the latest question in the context of the history.
+    - If the question is a follow-up (e.g., "what about in percentages?", "and for Germany?"), rephrase it into a complete, standalone question that can be understood without the chat history (e.g., "What is the percentage of people per country who think politics is complicated?").
+    - If the question is already self-contained, use it as is.
+    - If the question is a general greeting, a thank you, or something that doesn't require the database, set 'requiresTool' to false and keep the question as is.
 
-Use the conversation history and the "Relevant Codebook Context" to determine exact column names (e.g., 'cntry', 'trstprl').
-When invoking a tool, you must pass the relevant context to its codebookContext parameter if accepted.
+    Based on this, provide the reformulated question and whether a tool is required.`;
 
-CRITICAL RULES:
-- After any tool returns, produce a clear, user-friendly answer based on the tool output.
-- If a tool returns an 'error', surface the exact error message verbatim in the final answer.
-- Do NOT include raw SQL in your natural language. The UI will display SQL in a separate section.
-
-IMPORTANT EXECUTION GUARDRAIL:
-If the user asks for numeric aggregations from "ESS1" (averages, counts, sums, by country/group), call executeQueryTool first.
-
-Relevant Codebook Context:
-\`\`\`
-${retrievedContext}
-\`\`\``;
-
-    const llmResponse = await ai.generate({
-      model: 'openai/gpt-4o',
-      tools: [executeQueryTool, statisticsTool],
-      system: systemPrompt,
-      messages: [...history, { role: 'user', content: [{ text: input.question }] }],
-      config: { maxToolRoundtrips: 5 },
+    const reformulationResponse = await ai.generate({
+        model: 'openai/gpt-4o',
+        prompt: reformulationPrompt,
+        output: {
+            schema: ReformulatedQuestionSchema,
+        },
     });
 
-    const answer = llmResponse.text;
+    const { reformulatedQuestion, requiresTool } = reformulationResponse.output!;
+    console.log('[mainAssistantFlow] Reformulation result:', JSON.stringify({ reformulatedQuestion, requiresTool }, null, 2));
 
-    // Try to extract the last sqlQuery from tool responses for UI "Show Details"
-    const toolMessages = llmResponse.history?.filter((m) => m.role === 'tool') ?? [];
-    let sqlQuery: string | undefined;
-
-    for (let i = toolMessages.length - 1; i >= 0 && !sqlQuery; i--) {
-      const toolMessage = toolMessages[i];
-      if (toolMessage.toolRequest) {
-        const toolResponse = llmResponse.history?.find(
-          (m) => m.role === 'tool' && m.toolResponse?.ref === toolMessage.toolRequest.ref
-        );
-        const output = toolResponse?.toolResponse?.output as any;
-        if (output && typeof output === 'object' && 'sqlQuery' in output) {
-          sqlQuery = output.sqlQuery as string;
-          break;
-        }
-      }
+    if (!requiresTool) {
+        // If no tool is needed, generate a direct answer.
+        console.log('[mainAssistantFlow] No tool required. Generating a direct answer.');
+        const directAnswerResponse = await ai.generate({
+            model: 'openai/gpt-4o',
+            prompt: `Answer the following user question: "${reformulatedQuestion}"`,
+        });
+        return { answer: directAnswerResponse.text };
     }
 
-    // Fallbacks for other Genkit response shapes
-    if (!sqlQuery) {
-      for (let i = toolMessages.length - 1; i >= 0 && !sqlQuery; i--) {
-        const parts = toolMessages[i].content ?? [];
-        for (let j = parts.length - 1; j >= 0 && !sqlQuery; j--) {
-          const part: any = parts[j];
-          const fr = part?.functionResponse;
-          if (fr?.name === 'executeQueryTool' && fr?.response?.sqlQuery) {
-            sqlQuery = fr.response.sqlQuery as string;
-            break;
-          }
-          const tr = part?.toolResponse;
-          if (tr?.name === 'executeQueryTool' && tr?.response?.sqlQuery) {
-            sqlQuery = tr.response.sqlQuery as string;
-            break;
-          }
-        }
-      }
-    }
+    // Step 2: Use the reformulated question with the executeQueryTool.
+    console.log(`[mainAssistantFlow] Tool required. Executing query for: "${reformulatedQuestion}"`);
+    const toolOutput = await executeQueryTool(
+        { nlQuestion: reformulatedQuestion, history: input.history }
+    );
+    
+    console.log('[mainAssistantFlow] Tool output received:', JSON.stringify(toolOutput, null, 2));
 
-    return {
+    const finalPrompt = `You are an expert data analyst and assistant for the European Social Survey (ESS).
+    You have just executed a query to answer the user's question.
+
+    User's original question: "${input.question}"
+    The reformulated question used for the query: "${reformulatedQuestion}"
+    
+    Here is the result from the database tool:
+    ${JSON.stringify(toolOutput, null, 2)}
+
+    Now, formulate a final, user-friendly answer based on the tool's output.
+    - If the tool returned data, analyze and explain it clearly.
+    - If the tool returned an error, state the error message clearly to the user.
+    - Do include the SQL query or the retrieved context in your final response under Show Details.
+    - Your entire response should be just the natural language answer.`;
+    
+    const finalLlmResponse = await ai.generate({
+        model: 'openai/gpt-4o',
+        prompt: finalPrompt,
+    });
+
+    const answer = finalLlmResponse.text;
+    console.log('[mainAssistantFlow] Returning to frontend:', JSON.stringify({
       answer,
-      sqlQuery,
-      retrievedContext: retrievedContext || undefined,
+      sqlQuery: toolOutput.sqlQuery,
+      retrievedContext: toolOutput.retrievedContext,
+    }, null, 2));
+    
+    return {
+        answer,
+        sqlQuery: toolOutput.sqlQuery,
+        retrievedContext: toolOutput.retrievedContext,
     };
   }
 );
