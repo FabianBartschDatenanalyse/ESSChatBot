@@ -1,10 +1,11 @@
 "use client";
 
+import React from 'react';
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { mainAssistant } from '@/ai/flows/main-assistant-flow';
+import { mainAssistant } from '@/src/ai/flows/main-assistant-flow';
 
 import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
@@ -93,7 +94,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                 </Avatar>
               )}
               <div className={`rounded-lg p-3 max-w-[80%] ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
-                <div className="text-sm whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: message.content }} />
+              <div className="text-sm whitespace-pre-wrap">{message.content}</div>
                 {(message.sqlQuery || message.retrievedContext) && (
                    <Accordion type="single" collapsible className="w-full mt-2">
                       <AccordionItem value="details" className='border-0'>
