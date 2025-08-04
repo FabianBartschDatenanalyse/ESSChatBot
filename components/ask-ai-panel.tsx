@@ -88,7 +88,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
           {messages.map((message, index) => (
             <div key={index} className={`flex items-start gap-4 ${message.role === 'user' ? 'justify-end' : ''}`}>
               {message.role === 'assistant' && (
-                <Avatar className="h-9 w-9 border border-primary/20 bg-white">
+                <Avatar className="h-9 w-9 bg-white">
                   <AvatarImage src="https://firebasestorage.googleapis.com/v0/b/ess-navigator-nnbqm.firebasestorage.app/o/Screenshot%202025-07-28%20154109.png?alt=media&token=5ca90387-7aba-4a39-8a9c-c386d7aaaacf" alt="AI Assistant" />
                   <AvatarFallback>AI</AvatarFallback>
                 </Avatar>
@@ -149,7 +149,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
           ))}
           {isLoading && (
              <div className="flex items-start gap-4">
-                <Avatar className="h-9 w-9 border border-primary/20 bg-white">
+                <Avatar className="h-9 w-9 bg-white">
                   <AvatarImage src="https://firebasestorage.googleapis.com/v0/b/ess-navigator-nnbqm.firebasestorage.app/o/Screenshot%202025-07-28%20154109.png?alt=media&token=5ca90387-7aba-4a39-8a9c-c386d7aaaacf" alt="AI Assistant" />
                   <AvatarFallback>AI</AvatarFallback>
                 </Avatar>
