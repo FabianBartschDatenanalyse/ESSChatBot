@@ -53,7 +53,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
       const historyForApi = messages.map(({ role, content }) => ({ role, content }));
       
       const result = await mainAssistant({ 
-        question: values.question, 
+        nlQuestion: values.question, 
         history: historyForApi
       });
 
