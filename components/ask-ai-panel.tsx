@@ -16,6 +16,7 @@ import { Loader2, Send } from 'lucide-react';
 import { type Conversation, type Message } from '@/lib/types';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Code2, Database } from 'lucide-react';
+import Logo from './logo';
 
 const formSchema = z.object({
   question: z.string().min(1, 'Question cannot be empty.'),
@@ -49,12 +50,15 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
     form.reset();
 
     try {
-      const historyForApi = messages.map(({ role, content }) => ({ role, content, tool: () => {} }));
+      // Pass only the essential parts of the history, excluding context and queries
+      const historyForApi = messages.map(({ role, content }) => ({ role, content }));
       
       const result = await mainAssistant({ 
         nlQuestion: values.question, 
         history: historyForApi
       });
+
+      console.log('[AskAiPanel] Result from mainAssistant:', result); // <--- HIER
 
       const assistantMessage: Message = {
         role: 'assistant',
@@ -91,7 +95,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                 </Avatar>
               )}
               <div className={`rounded-lg p-3 max-w-[80%] ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
-              <div className="text-sm whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: message.content.replace(/\\n/g, '<br />') }}></div>
+              <div className="text-sm whitespace-pre-wrap">{message.content}</div>
                 {(message.sqlQuery || message.retrievedContext) && (
                    <Accordion type="single" collapsible className="w-full mt-2">
                       <AccordionItem value="details" className='border-0'>
@@ -99,7 +103,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                           Show Details
                         </AccordionTrigger>
                         <AccordionContent>
-                           {message.sqlQuery && (
+                           {message.sqlQuery && message.sqlQuery.trim().length > 0 && (
                             <div className="space-y-2 mt-2">
                                 <h4 className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
                                     <Code2 className="h-4 w-4" />
@@ -110,7 +114,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                                 </pre>
                             </div>
                            )}
-                            {(!message.sqlQuery || message.sqlQuery.trim().length === 0) && message.role === 'assistant' && (
+                           {(!message.sqlQuery || message.sqlQuery.trim().length === 0) && message.role === 'assistant' && (
                             <div className="space-y-2 mt-2">
                               <h4 className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
                                 <Code2 className="h-4 w-4" />

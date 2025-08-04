@@ -11,8 +11,9 @@
  * - MainAssistantOutput - The return type for the mainAssistant function.
  */
 
+import { unstable_noStore as noStore } from 'next/cache';
 import {ai} from '@/ai/genkit';
-import {Message, z} from 'zod';
+import { z } from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
 import { searchCodebook } from '@/lib/vector-search';
 
@@ -35,8 +36,12 @@ const MainAssistantOutputSchema = z.object({
 export type MainAssistantOutput = z.infer<typeof MainAssistantOutputSchema>;
 
 export async function mainAssistant(input: MainAssistantInput): Promise<MainAssistantOutput> {
-  return mainAssistantFlow(input);
+  noStore();
+  const result = await mainAssistantFlow(input);
+  console.log('[mainAssistant] Returning from mainAssistant:', JSON.stringify(result, null, 2));
+  return result;
 }
+
 
 // Define a schema for the question reformulation
 const ReformulatedQuestionSchema = z.object({
@@ -51,6 +56,7 @@ const mainAssistantFlow = ai.defineFlow(
     outputSchema: MainAssistantOutputSchema,
   },
   async (input) => {
+    noStore();
     console.log('[mainAssistantFlow] Received input:', JSON.stringify(input, null, 2));
 
     // Step 1: Decide if a tool is needed and reformulate the question if necessary.
@@ -109,7 +115,6 @@ const mainAssistantFlow = ai.defineFlow(
     Now, formulate a final, user-friendly answer based on the tool's output.
     - If the tool returned data, analyze and explain it clearly.
     - If the tool returned an error, state the error message clearly to the user.
-    - Do NOT include the SQL query or the retrieved context in your final response.
     - Your entire response should be just the natural language answer.`;
     
     const finalLlmResponse = await ai.generate({
@@ -118,11 +123,16 @@ const mainAssistantFlow = ai.defineFlow(
     });
 
     const answer = finalLlmResponse.text;
+    console.log('[mainAssistantFlow] Returning to frontend:', JSON.stringify({
+      answer,
+    }, null, 2));
+  
+   
 
     return {
-        answer,
-        sqlQuery: toolOutput.sqlQuery,
-        retrievedContext: toolOutput.retrievedContext,
-    };
+      answer,
+      sqlQuery: String(toolOutput.sqlQuery || ''),
+      retrievedContext: String(toolOutput.retrievedContext || '')
+    };                  
   }
 );

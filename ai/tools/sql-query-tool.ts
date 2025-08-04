@@ -10,79 +10,84 @@
 
 import { ai } from '@/ai/genkit';
 import { executeQuery } from '@/lib/data-service';
-import { z, Message } from 'genkit';
+import { z } from 'zod';
 import { suggestSqlQuery, type SuggestSqlQueryOutput } from '../flows/suggest-sql-query';
-import { searchCodebook } from '@/lib/vector-search';
 
 const toolInputSchema = z.object({
     nlQuestion: z.string().describe('A natural language question that can be answered with a SQL query.'),
-    history: z.array(Message).optional().describe("The conversation history."),
+    codebookContext: z.string().describe('Relevant context from the database codebook to use to construct the query.'),
 });
 
 const toolOutputSchema = z.object({
-  sqlQuery: z.string().optional(),
-  retrievedContext: z.string().optional(),
-  data: z.any().optional(),
-  error: z.string().optional(),
+  sqlQuery: z.string().optional().describe("The SQL query that was executed to get the data."),
+  data: z.any().optional().describe("The data returned from the query."),
+  error: z.string().optional().describe("An error message if the query failed, possibly containing debug logs."),
 });
 
 export const executeQueryTool = ai.defineTool(
   {
     name: 'executeQueryTool',
-    description: 'Use this tool to query the database to answer user questions about the data. Takes a natural language question and optional conversation history as input.',
+    description: 'Use this tool to query the database to answer user questions about the data. Takes a natural language question and relevant codebook context as input.',
     inputSchema: toolInputSchema,
     outputSchema: toolOutputSchema,
   },
   async (input) => {
-    let sqlQuery: string = '';
-    let retrievedContext: string = '';
+    let sqlQuery = '';
+    const logs: string[] = ['[executeQueryTool] Received input: ' + JSON.stringify(input, null, 2)];
     
     try {
-      // Step 1: Retrieve relevant context from the vector database.
-      const searchResults = await searchCodebook(input.nlQuestion, 5);
-      retrievedContext = searchResults
-          .map((result) => `- ${result.content}`)
-          .join('\n');
-        
-      // Step 2: Generate SQL
+      // Step 1: Generate SQL using the provided question and retrieved context
+      logs.push('Step 1: Generating SQL query...');
       let suggestion: SuggestSqlQueryOutput;
       try {
         suggestion = await suggestSqlQuery({
           question: input.nlQuestion,
-          codebook: retrievedContext,
-          history: input.history,
+          codebook: input.codebookContext,
         });
         sqlQuery = suggestion.sqlQuery;
+        logs.push(`Step 1 Complete: Generated SQL: ${sqlQuery}`);
       } catch (suggestionError: any) {
-        const errorMsg = `❌ Failed to generate SQL query. Error: ${suggestionError.message || 'Unknown error'}`;
-        return { error: errorMsg, sqlQuery, retrievedContext };
+        logs.push(`❌ Failed to generate SQL query. Error: ${suggestionError.message || 'Unknown error'}`);
+        console.error('[executeQueryTool]', logs.join('\n'));
+        return { error: logs.join('\n'), sqlQuery };
       }
 
       if (!sqlQuery || sqlQuery.trim() === '') {
-        const errorMsg = 'AI model returned an empty SQL query.';
-        return { error: errorMsg, sqlQuery, retrievedContext };
+        logs.push('❌ AI model returned an empty SQL query.');
+        console.error('[executeQueryTool]', logs.join('\n'));
+        return { error: logs.join('\n'), sqlQuery };
       }
       
-      // Step 3: Execute SQL
+      // Step 2: Execute SQL
+      logs.push('Step 2: Executing SQL query...');
       const result = await executeQuery(sqlQuery);
       
       if (result.error) {
-        return { error: `❌ Query execution failed: ${result.error}`, sqlQuery, retrievedContext };
+        logs.push(`❌ Query execution failed: ${result.error}`);
+        console.error('[executeQueryTool]', logs.join('\n'));
+        return { error: logs.join('\n'), sqlQuery };
       }
 
       if (result.data) {
          if (result.data.length > 0) {
-            return { data: result.data, sqlQuery, retrievedContext };
+            logs.push(`Step 2 Complete: Query returned ${result.data.length} rows.`);
+            console.log(`[executeQueryTool] Query returned ${result.data.length} rows.`);
+            return { data: result.data, sqlQuery };
          } else {
-            return { data: [], sqlQuery, retrievedContext };
+            logs.push('Step 2 Complete: SQL executed successfully, but no data was returned.');
+            console.warn('[executeQueryTool]', logs.join('\n'));
+            return { data: [], sqlQuery };
          }
       }
       
-      return { error: 'No data or error returned from executeQuery', sqlQuery, retrievedContext };
+      logs.push('❌ No data or error returned from executeQuery.');
+      console.error('[executeQueryTool]', logs.join('\n'));
+      return { error: logs.join('\n'), sqlQuery };
 
     } catch (e: any) {
-      const errorMsg = `💥 Unexpected error in executeQueryTool: ${e.message || 'Unknown error'}`;
-      return { error: errorMsg, sqlQuery, retrievedContext };
+      logs.push(`💥 Unexpected error in executeQueryTool: ${e.message || 'Unknown error'}`);
+      console.error('[executeQueryTool]', logs.join('\n'), e);
+      return { error: logs.join('\n'), sqlQuery };
     }
   }
 );

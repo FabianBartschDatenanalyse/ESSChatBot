@@ -43,7 +43,7 @@ echo "Temporäres Verzeichnis erstellt unter: $TEMP_DIR"
 
 # Klonen des Repositories
 echo "Klone das Repository von $GITHUB_URL..."
-git clone --depth 1 "$GITHUB_URL" "$TEMP_DIR"
+git clone --depth 1 --branch main "$GITHUB_URL" "$TEMP_DIR"
 if [ $? -ne 0 ]; then
     echo -e "${RED}Fehler: Klonen des Repositorys fehlgeschlagen. Überprüfen Sie die URL und Ihre Berechtigungen.${NC}"
     rm -rf "$TEMP_DIR"
@@ -68,7 +68,9 @@ echo "Kopiere Dateien aus dem geklonten Repository in das aktuelle Verzeichnis (
 rm -rf "$TEMP_DIR/.git"
 
 # Dateien rekursiv und überschreibend kopieren
-cp -r "$TEMP_DIR/"* "$TEMP_DIR"/.[!.]* "$PWD" 2>/dev/null || true
+shopt -s dotglob nullglob
+cp -r "$TEMP_DIR/"* "$PWD"
+shopt -u dotglob nullglob
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}Fehler: Kopieren der Dateien fehlgeschlagen.${NC}"
