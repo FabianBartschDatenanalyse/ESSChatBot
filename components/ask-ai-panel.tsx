@@ -5,18 +5,17 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { mainAssistant } from '@/src/ai/flows/main-assistant-flow';
+import { mainAssistant } from '@/ai/flows/main-assistant-flow';
 
 import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Loader2, Send } from 'lucide-react';
 import { type Conversation, type Message } from '@/lib/types';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Code2, Database } from 'lucide-react';
-import Logo from './logo';
 
 const formSchema = z.object({
   question: z.string().min(1, 'Question cannot be empty.'),
@@ -58,7 +57,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
         history: historyForApi
       });
 
-      console.log('[AskAiPanel] Result from mainAssistant:', result); // <--- HIER
+      console.log('[AskAiPanel] Result from mainAssistant:', result);
 
       const assistantMessage: Message = {
         role: 'assistant',
@@ -90,11 +89,12 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
             <div key={index} className={`flex items-start gap-4 ${message.role === 'user' ? 'justify-end' : ''}`}>
               {message.role === 'assistant' && (
                 <Avatar className="h-9 w-9 border border-primary/20 bg-white">
-                  <Logo className="p-1" />
+                  <AvatarImage src="https://firebasestorage.googleapis.com/v0/b/ess-navigator-nnbqm.firebasestorage.app/o/Screenshot%202025-07-28%20154109.png?alt=media&token=5ca90387-7aba-4a39-8a9c-c386d7aaaacf" alt="AI Assistant" />
+                  <AvatarFallback>AI</AvatarFallback>
                 </Avatar>
               )}
               <div className={`rounded-lg p-3 max-w-[80%] ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
-              <div className="text-sm whitespace-pre-wrap">{message.content}</div>
+              <div className="text-sm whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: message.content.replace(/\n/g, '<br />') }}></div>
                 {(message.sqlQuery || message.retrievedContext) && (
                    <Accordion type="single" collapsible className="w-full mt-2">
                       <AccordionItem value="details" className='border-0'>
@@ -150,7 +150,8 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
           {isLoading && (
              <div className="flex items-start gap-4">
                 <Avatar className="h-9 w-9 border border-primary/20 bg-white">
-                   <Logo className="p-1" />
+                  <AvatarImage src="https://firebasestorage.googleapis.com/v0/b/ess-navigator-nnbqm.firebasestorage.app/o/Screenshot%202025-07-28%20154109.png?alt=media&token=5ca90387-7aba-4a39-8a9c-c386d7aaaacf" alt="AI Assistant" />
+                  <AvatarFallback>AI</AvatarFallback>
                 </Avatar>
                 <div className="rounded-lg p-3 bg-muted flex items-center">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -182,5 +183,3 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
     </div>
   );
 }
-
-    
