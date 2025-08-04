@@ -6,4 +6,3 @@ import '@/src/ai/flows/main-assistant-flow.ts';
 import '@/src/ai/flows/suggest-sql-query.ts';
 import '@/src/ai/tools/sql-query-tool.ts';
 import '@/src/ai/tools/statistics-tool.ts';
-
