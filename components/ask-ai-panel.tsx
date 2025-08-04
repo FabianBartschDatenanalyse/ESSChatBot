@@ -1,5 +1,6 @@
 "use client";
 
+import React from 'react';
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -10,10 +11,9 @@ import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Loader2, Send } from 'lucide-react';
-import Logo from './logo';
-import type { Conversation, Message } from './dashboard';
+import { type Conversation, type Message } from '@/lib/types';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Code2, Database } from 'lucide-react';
 
@@ -49,10 +49,13 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
     form.reset();
 
     try {
-      // Pass the existing messages as history
-      const history = messages.map(({ role, content }) => ({ role, content }));
-      const result = await mainAssistant({ question: values.question, history });
+      const historyForApi = messages.map(({ role, content }) => ({ role, content, tool: () => {} }));
       
+      const result = await mainAssistant({ 
+        nlQuestion: values.question, 
+        history: historyForApi
+      });
+
       const assistantMessage: Message = {
         role: 'assistant',
         content: result.answer,
@@ -82,15 +85,14 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
           {messages.map((message, index) => (
             <div key={index} className={`flex items-start gap-4 ${message.role === 'user' ? 'justify-end' : ''}`}>
               {message.role === 'assistant' && (
-                <Avatar className="h-9 w-9 border border-primary/20">
-                    <div className='flex h-full w-full items-center justify-center bg-primary text-primary-foreground'>
-                        <Logo className='h-5 w-5' />
-                    </div>
+                <Avatar className="h-9 w-9 bg-white">
+                  <AvatarImage src="https://firebasestorage.googleapis.com/v0/b/ess-navigator-nnbqm.firebasestorage.app/o/Screenshot%202025-07-28%20154109.png?alt=media&token=5ca90387-7aba-4a39-8a9c-c386d7aaaacf" alt="AI Assistant" />
+                  <AvatarFallback>AI</AvatarFallback>
                 </Avatar>
               )}
               <div className={`rounded-lg p-3 max-w-[80%] ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
-                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                {(message.sqlQuery || message.retrievedContext) && message.role === 'assistant' && (
+              <div className="text-sm whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: message.content.replace(/\\n/g, '<br />') }}></div>
+                {(message.sqlQuery || message.retrievedContext) && (
                    <Accordion type="single" collapsible className="w-full mt-2">
                       <AccordionItem value="details" className='border-0'>
                         <AccordionTrigger className='text-xs py-1 hover:no-underline'>
@@ -108,8 +110,19 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                                 </pre>
                             </div>
                            )}
-                           {message.retrievedContext && (
+                            {(!message.sqlQuery || message.sqlQuery.trim().length === 0) && message.role === 'assistant' && (
                             <div className="space-y-2 mt-2">
+                              <h4 className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+                                <Code2 className="h-4 w-4" />
+                                SQL Query
+                              </h4>
+                              <pre className="p-2 bg-background/50 rounded-md text-xs overflow-x-auto">
+                                <code className="font-mono text-muted-foreground">Not provided by the tool.</code>
+                              </pre>
+                            </div>
+                           )}
+                           {message.retrievedContext && (
+                            <div className="space-y-2 mt-4">
                                 <h4 className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
                                     <Database className="h-4 w-4" />
                                     Retrieved Context
@@ -133,10 +146,9 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
           ))}
           {isLoading && (
              <div className="flex items-start gap-4">
-                <Avatar className="h-9 w-9 border border-primary/20">
-                    <div className='flex h-full w-full items-center justify-center bg-primary text-primary-foreground'>
-                        <Logo className='h-5 w-5' />
-                    </div>
+                <Avatar className="h-9 w-9 bg-white">
+                  <AvatarImage src="https://firebasestorage.googleapis.com/v0/b/ess-navigator-nnbqm.firebasestorage.app/o/Screenshot%202025-07-28%20154109.png?alt=media&token=5ca90387-7aba-4a39-8a9c-c386d7aaaacf" alt="AI Assistant" />
+                  <AvatarFallback>AI</AvatarFallback>
                 </Avatar>
                 <div className="rounded-lg p-3 bg-muted flex items-center">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />

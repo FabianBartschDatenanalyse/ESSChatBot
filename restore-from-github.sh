@@ -62,8 +62,14 @@ fi
 # -a: Archivmodus (behält Berechtigungen, etc.)
 # -v: Ausführliche Ausgabe (zeigt, was kopiert wird)
 # Der Punkt am Ende des Quellpfades ist wichtig, um auch versteckte Dateien (wie .gitignore) zu kopieren.
-echo "Kopiere Dateien aus dem geklonten Repository in das aktuelle Verzeichnis..."
-rsync -av --exclude='.git/' "$TEMP_DIR/" .
+echo "Kopiere Dateien aus dem geklonten Repository in das aktuelle Verzeichnis (ohne rsync)..."
+
+# .git-Verzeichnis im Temp-Verzeichnis löschen, damit es nicht mitkopiert wird
+rm -rf "$TEMP_DIR/.git"
+
+# Dateien rekursiv und überschreibend kopieren
+cp -r "$TEMP_DIR/"* "$TEMP_DIR"/.[!.]* "$PWD" 2>/dev/null || true
+
 if [ $? -ne 0 ]; then
     echo -e "${RED}Fehler: Kopieren der Dateien fehlgeschlagen.${NC}"
     rm -rf "$TEMP_DIR"
