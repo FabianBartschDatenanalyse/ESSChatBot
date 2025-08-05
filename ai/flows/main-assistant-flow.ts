@@ -38,8 +38,10 @@ export type MainAssistantOutput = z.infer<typeof MainAssistantOutputSchema>;
 export async function mainAssistant(input: MainAssistantInput): Promise<MainAssistantOutput> {
   noStore();
   const result = await mainAssistantFlow(input);
+  console.log('[mainAssistant] Returning from mainAssistant:', JSON.stringify(result, null, 2));
   return result;
 }
+
 
 // Define a schema for the question reformulation
 const ReformulatedQuestionSchema = z.object({
@@ -93,19 +95,11 @@ const mainAssistantFlow = ai.defineFlow(
         return { answer: directAnswerResponse.text };
     }
 
-    // Step 2: Retrieve context from the vector DB for the reformulated question.
-    const searchResults = await searchCodebook(reformulatedQuestion, 10);
-    const retrievedContext = searchResults
-      .map(r => r.content)
-      .join('\n\n');
-    console.log(`[mainAssistantFlow] Retrieved ${searchResults.length} context chunks.`);
-
-    // Step 3: Use the reformulated question and context with the executeQueryTool.
+    // Step 2: Use the reformulated question with the executeQueryTool.
     console.log(`[mainAssistantFlow] Tool required. Executing query for: "${reformulatedQuestion}"`);
-    const toolOutput = await executeQueryTool({ 
-      nlQuestion: reformulatedQuestion, 
-      codebookContext: retrievedContext, 
-    });
+    const toolOutput = await executeQueryTool(
+        { nlQuestion: reformulatedQuestion, history: input.history }
+    );
     
     console.log('[mainAssistantFlow] Tool output received:', JSON.stringify(toolOutput, null, 2));
 
@@ -121,7 +115,7 @@ const mainAssistantFlow = ai.defineFlow(
     Now, formulate a final, user-friendly answer based on the tool's output.
     - If the tool returned data, analyze and explain it clearly.
     - If the tool returned an error, state the error message clearly to the user.
-    - Do not include the SQL query or the retrieved context in your final response. The UI will handle displaying it.
+    - Do include the SQL query or the retrieved context in your final response under Show Details.
     - Your entire response should be just the natural language answer.`;
     
     const finalLlmResponse = await ai.generate({
@@ -130,12 +124,34 @@ const mainAssistantFlow = ai.defineFlow(
     });
 
     const answer = finalLlmResponse.text;
-    console.log('[mainAssistantFlow] Final answer generated.');
-   
-    return {
+    console.log('[mainAssistantFlow] Returning to frontend:', JSON.stringify({
       answer,
       sqlQuery: toolOutput.sqlQuery,
       retrievedContext: toolOutput.retrievedContext,
+    }, null, 2));
+    
+    console.log('[mainAssistantFlow] typeof sqlQuery:', typeof toolOutput.sqlQuery);
+    console.log('[mainAssistantFlow] instance of sqlQuery:', toolOutput.sqlQuery?.constructor?.name);
+    console.log('[mainAssistantFlow] raw sqlQuery:', toolOutput.sqlQuery);
+    console.log('[mainAssistantFlow] as string:', String(toolOutput.sqlQuery));
+   
+
+    return {
+      answer: [
+        '✅ THIS IS A DEBUG TEST MARKER ✅',
+        '',
+        answer,
+        '',
+        '---',
+        '**[DEBUG]**',
+        `SQL Type: ${typeof toolOutput.sqlQuery}`,
+        `Constructor: ${toolOutput.sqlQuery?.constructor?.name}`,
+        `Raw SQL: ${toolOutput.sqlQuery}`,
+        `String SQL: ${String(toolOutput.sqlQuery)}`,
+        `Retrieved Context: ${String(toolOutput.retrievedContext)}`
+      ].join('\n'),
+      sqlQuery: String(toolOutput.sqlQuery || ''),
+      retrievedContext: String(toolOutput.retrievedContext || '')
     };                  
   }
 );
