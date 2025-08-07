@@ -9,10 +9,10 @@
  */
 
 import { ai } from '@/src/ai/genkit';
-import { executeQuery } from '@/lib/data-service';
+import { executeQuery } from '@/src/lib/data-service';
 import { z, Message } from 'genkit';
-import { suggestSqlQuery, type SuggestSqlQueryOutput } from '../flows/suggest-sql-query';
-import { searchCodebook } from '@/lib/vector-search';
+import { suggestSqlQuery, type SuggestSqlQueryOutput } from '@/src/ai/flows/suggest-sql-query';
+import { searchCodebook } from '@/src/lib/vector-search';
 
 const MessageSchema = z.object({
   role: z.enum(['user', 'assistant', 'tool']),

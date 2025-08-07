@@ -147,7 +147,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                {message.role === 'user' && (
                 <Avatar className="h-9 w-9 bg-transparent border-0 overflow-hidden">
                   <AvatarImage
-                    src="https://firebasestorage.googleapis.com/v0/b/ess-navigator-nnbqm.firebasestorage.app/o/Screenshot%202025-08-05%20075425.png?alt=media&token=77aae284-b3d4-4b92-9005-8d035078e900"
+                    src="https://firebasestorage.googleapis.com/v0/b/ess-navigator-nnbqm.firebasestorage.app/o/Screenshot%202025-08-05%20173336.png?alt=media&token=043f7832-d24c-44ae-9859-522233a4d1a5"
                     alt="User Science Icon"
                     className="h-full w-full object-contain bg-transparent"
                   /> 

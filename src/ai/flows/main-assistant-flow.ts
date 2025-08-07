@@ -14,8 +14,8 @@
 import { unstable_noStore as noStore } from 'next/cache';
 import {ai} from '@/src/ai/genkit';
 import { z } from 'zod';
-import { executeQueryTool } from '../tools/sql-query-tool';
-import { searchCodebook } from '@/lib/vector-search';
+import { executeQueryTool } from '@/src/ai/tools/sql-query-tool';
+import { searchCodebook } from '@/src/lib/vector-search';
 
 const MessageSchema = z.object({
     role: z.enum(['user', 'assistant', 'tool']),

@@ -1,7 +1,7 @@
 'use server';
 
 import { OpenAIEmbeddings } from '@langchain/openai';
-import { supabase } from './supabase'; // Use the public (anon) client
+import { supabase } from '@/src/lib/supabase'; // Use the public (anon) client
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
