@@ -2,7 +2,7 @@
 
 import type { User } from "firebase/auth";
 import { signOut } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth } from "@/src/lib/firebase";
 import { useRouter } from "next/navigation";
 
 import {

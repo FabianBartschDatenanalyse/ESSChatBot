@@ -12,7 +12,7 @@
  */
 
 import { unstable_noStore as noStore } from 'next/cache';
-import {ai} from '@/ai/genkit';
+import {ai} from '@/src/ai/genkit';
 import { z } from 'zod';
 import { executeQueryTool } from '../tools/sql-query-tool';
 import { searchCodebook } from '@/lib/vector-search';

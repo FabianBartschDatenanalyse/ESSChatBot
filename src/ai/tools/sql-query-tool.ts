@@ -8,7 +8,7 @@
  * it to SQL, executes it, and returns the result.
  */
 
-import { ai } from '@/ai/genkit';
+import { ai } from '@/src/ai/genkit';
 import { executeQuery } from '@/lib/data-service';
 import { z, Message } from 'genkit';
 import { suggestSqlQuery, type SuggestSqlQueryOutput } from '../flows/suggest-sql-query';

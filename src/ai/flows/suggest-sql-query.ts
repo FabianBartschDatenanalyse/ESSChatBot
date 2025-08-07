@@ -8,7 +8,7 @@
  * - SuggestSqlQueryOutput - The return type for the suggestSqlQuery function.
  */
 
-import {ai} from '@/ai/genkit';
+import {ai} from '@/src/ai/genkit';
 import {z, Message} from 'genkit';
 
 const MessageSchema = z.object({

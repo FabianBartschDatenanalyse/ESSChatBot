@@ -1,9 +1,9 @@
 "use client";
 
-import { ScrollArea } from "./ui/scroll-area";
-import type { Conversation } from './dashboard';
-import { Button } from "./ui/button";
-import { cn } from "@/lib/utils";
+import { ScrollArea } from "@/src/components/ui/scroll-area";
+import type { Conversation } from '@/src/components/dashboard';
+import { Button } from "@/src/components/ui/button";
+import { cn } from "@/src/lib/utils";
 
 interface HistoryPanelProps {
   conversations: Conversation[];

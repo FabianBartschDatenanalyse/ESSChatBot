@@ -7,16 +7,16 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { mainAssistant } from '@/src/ai/flows/main-assistant-flow';
 
-import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Form, FormControl, FormField, FormItem } from '@/src/components/ui/form';
+import { Input } from '@/src/components/ui/input';
+import { Button } from '@/src/components/ui/button';
+import { ScrollArea } from '@/src/components/ui/scroll-area';
+import { Avatar, AvatarImage, AvatarFallback } from '@/src/components/ui/avatar';
 import { Loader2, Send } from 'lucide-react';
-import { type Conversation, type Message } from '@/lib/types';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
+import { type Conversation, type Message } from '@/src/lib/types';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/src/components/ui/accordion';
 import { Code2, Database } from 'lucide-react';
-import Logo from './logo';
+import Logo from '@/src/components/logo';
 
 const formSchema = z.object({
   question: z.string().min(1, 'Question cannot be empty.'),

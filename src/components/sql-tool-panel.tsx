@@ -4,12 +4,12 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { executeQuery } from '@/lib/data-service';
+import { executeQuery } from '@/src/lib/data-service';
 
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Textarea } from '@/components/ui/textarea';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/src/components/ui/form';
+import { Textarea } from '@/src/components/ui/textarea';
+import { Button } from '@/src/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/src/components/ui/card";
 import { Loader2, Play } from 'lucide-react';
 import { DataTable } from './data-table';
 import { useToast } from '@/hooks/use-toast';

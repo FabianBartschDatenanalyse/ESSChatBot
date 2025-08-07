@@ -1,5 +1,7 @@
 
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card";
+import React from 'react';
+
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/src/components/ui/card";
 import { Lightbulb } from "lucide-react";
 
 const queryExamples = [

@@ -4,7 +4,7 @@
  * @fileOverview A Genkit tool for performing statistical analyses using a Node.js library.
  */
 
-import { ai } from '@/ai/genkit';
+import { ai } from '@/src/ai/genkit';
 import { z } from 'zod';
 import { executeQuery } from '@/lib/data-service';
 import MultivariateLinearRegression from 'ml-regression-multivariate-linear';
