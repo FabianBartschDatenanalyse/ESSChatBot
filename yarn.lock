@@ -3868,7 +3868,7 @@ genkit@^1.14.1:
     "@genkit-ai/core" "1.15.5"
     uuid "^10.0.0"
 
-genkitx-openai@latest:
+genkitx-openai@^0.23.0:
   version "0.23.0"
   resolved "https://registry.yarnpkg.com/genkitx-openai/-/genkitx-openai-0.23.0.tgz#5a49eef3e8dc2a42c6b4cfd721f8dd4ebd682b83"
   integrity sha512-vb4fbCkwM51EYgZuJ6yGJKzfTOWXt2n3gyupv0c0eY07eUzPDF4arKc6M1KOSL1jZ7hdaV1nNn+/prt5MEzZmQ==

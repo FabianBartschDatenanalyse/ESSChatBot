@@ -12,14 +12,15 @@
  */
 
 import { unstable_noStore as noStore } from 'next/cache';
-import {ai} from '@/src/ai/genkit';
+import { ai } from '@/src/ai/genkit';
 import { z } from 'zod';
 import { executeQueryTool } from '@/src/ai/tools/sql-query-tool';
 import { searchCodebook } from '@/src/lib/vector-search';
+import { statisticsTool } from '@/src/ai/tools/statistics-tool';
 
 const MessageSchema = z.object({
-    role: z.enum(['user', 'assistant', 'tool']),
-    content: z.string(),
+  role: z.enum(['user', 'assistant', 'tool']),
+  content: z.string(),
 });
 
 const MainAssistantInputSchema = z.object({
@@ -42,11 +43,19 @@ export async function mainAssistant(input: MainAssistantInput): Promise<MainAssi
   return result;
 }
 
-
 // Define a schema for the question reformulation
 const ReformulatedQuestionSchema = z.object({
-    reformulatedQuestion: z.string().describe("The reformulated, self-contained question for the tool."),
-    requiresTool: z.boolean().describe("Whether the question requires using the database tool."),
+  reformulatedQuestion: z.string().describe("The reformulated, self-contained question for the tool."),
+  requiresTool: z.boolean().describe("Whether the question requires using the database tool."),
+});
+
+// Schlankes Schema zur Extraktion eines Regressions-Plans (ohne Variablen-Einschränkung)
+const StatsExtractionSchema = z.object({
+  needsRegression: z.boolean().describe("True if the question asks for regression/effects/prediction/coefficients."),
+  analysisType: z.enum(['linearRegression', 'randomForestRegression']).optional(),
+  target: z.string().optional(),
+  features: z.array(z.string()).optional(),
+  filters: z.record(z.string(), z.any()).optional(),
 });
 
 const mainAssistantFlow = ai.defineFlow(
@@ -75,64 +84,112 @@ const mainAssistantFlow = ai.defineFlow(
     Based on this, provide the reformulated question and whether a tool is required.`;
 
     const reformulationResponse = await ai.generate({
-        model: 'openai/gpt-4o',
-        prompt: reformulationPrompt,
-        output: {
-            schema: ReformulatedQuestionSchema,
-        },
+      model: 'openai/gpt-4o',
+      prompt: reformulationPrompt,
+      output: { schema: ReformulatedQuestionSchema },
     });
 
     const { reformulatedQuestion, requiresTool } = reformulationResponse.output!;
     console.log('[mainAssistantFlow] Reformulation result:', JSON.stringify({ reformulatedQuestion, requiresTool }, null, 2));
 
     if (!requiresTool) {
-        // If no tool is needed, generate a direct answer.
-        console.log('[mainAssistantFlow] No tool required. Generating a direct answer.');
-        const directAnswerResponse = await ai.generate({
-            model: 'openai/gpt-4o',
-            prompt: `Answer the following user question: "${reformulatedQuestion}"`,
-        });
-        return { answer: directAnswerResponse.text };
+      // If no tool is needed, generate a direct answer.
+      console.log('[mainAssistantFlow] No tool required. Generating a direct answer.');
+      const directAnswerResponse = await ai.generate({
+        model: 'openai/gpt-4o',
+        prompt: `Answer the following user question: "${reformulatedQuestion}"`,
+      });
+      return { answer: directAnswerResponse.text };
     }
 
-    // Step 2: Use the reformulated question with the executeQueryTool.
+    // Step 2: Unabhängig von SQL zuerst Codebook-Kontext holen
+    const searchResults = await searchCodebook(reformulatedQuestion, 7);
+    const retrievedContext = searchResults.map((r: any) => `- ${r.content}`).join('\n');
+    console.log('[mainAssistantFlow] Retrieved context length:', retrievedContext.length);
+
+    // Step 3: Prüfen, ob Regression gewünscht ist (nur mit Kontext arbeiten)
+    const statsPrompt = `Plan a statistical regression only if the question requests regression/effects/prediction/coefficients.
+
+STRICT RULES:
+- Use variable names EXACTLY as they appear in the CODEBOOK CONTEXT below.
+- Do NOT invent, rename, or reformat variable names.
+- If you cannot find required variables in the context, set needsRegression=false and (optionally) include a reason.
+
+Return JSON with keys: needsRegression, analysisType, target, features, filters.
+
+QUESTION:
+"${reformulatedQuestion}"
+
+CODEBOOK CONTEXT (authoritative variable names):
+${retrievedContext}`;
+
+    let statsOutput: any | null = null;
+    try {
+      const statsExtraction = await ai.generate({
+        model: 'openai/gpt-4o',
+        prompt: statsPrompt,
+        output: { schema: StatsExtractionSchema },
+      });
+      const plan = statsExtraction.output!;
+      console.log('[mainAssistantFlow] Stats extraction:', JSON.stringify(plan, null, 2));
+
+      // Wenn Regression nötig → direkt statisticsTool ausführen (statisticsTool lädt selbst die Daten via SQL)
+      if (plan?.needsRegression) {
+        statsOutput = await statisticsTool({
+          analysisType: (plan.analysisType ?? 'linearRegression') as 'linearRegression' | 'randomForestRegression',
+          target: String(plan.target || '').trim(),
+          features: Array.isArray(plan.features) ? plan.features : [],
+          filters: plan.filters,
+          codebookContext: retrievedContext,
+        } as any);
+        console.log('[mainAssistantFlow] statisticsTool output:', JSON.stringify(statsOutput, null, 2));
+
+        const finalPrompt = `You are an expert data analyst and assistant for the ESS.
+User's original question: "${input.question}"
+Reformulated question: "${reformulatedQuestion}"
+
+Regression result:
+${JSON.stringify(statsOutput, null, 2)}
+
+Write a clear, user-friendly answer based on the regression result. If there was an error, explain it and suggest next steps.`;
+
+        const finalLlmResponse = await ai.generate({ model: 'openai/gpt-4o', prompt: finalPrompt });
+        const answer = finalLlmResponse.text;
+
+        return {
+          answer,
+          sqlQuery: String(statsOutput?.sqlQuery || ''), // SQL aus statisticsTool, falls vorhanden
+          retrievedContext,
+        };
+      }
+    } catch (e) {
+      console.warn('[mainAssistantFlow] Regression planning or run failed; falling back to SQL tool:', e);
+      // wenn Planung scheitert, normal weiter unten
+    }
+
+    // Step 4: Kein Regressionsbedarf → executeQueryTool wie gehabt
     console.log(`[mainAssistantFlow] Tool required. Executing query for: "${reformulatedQuestion}"`);
-    const toolOutput = await executeQueryTool(
-        { nlQuestion: reformulatedQuestion, history: input.history }
-    );
-    
+    const toolOutput = await executeQueryTool({ nlQuestion: reformulatedQuestion, history: input.history });
     console.log('[mainAssistantFlow] Tool output received:', JSON.stringify(toolOutput, null, 2));
 
     const finalPrompt = `You are an expert data analyst and assistant for the European Social Survey (ESS).
-    You have just executed a query to answer the user's question.
+You have just executed a query to answer the user's question.
 
-    User's original question: "${input.question}"
-    The reformulated question used for the query: "${reformulatedQuestion}"
-    
-    Here is the result from the database tool:
-    ${JSON.stringify(toolOutput, null, 2)}
+User's original question: "${input.question}"
+The reformulated question used for the query: "${reformulatedQuestion}"
 
-    Now, formulate a final, user-friendly answer based on the tool's output.
-    - If the tool returned data, analyze and explain it clearly.
-    - If the tool returned an error, state the error message clearly to the user.
-    - Your entire response should be just the natural language answer.`;
-    
-    const finalLlmResponse = await ai.generate({
-        model: 'openai/gpt-4o',
-        prompt: finalPrompt,
-    });
+Here is the result from the database tool:
+${JSON.stringify(toolOutput, null, 2)}
 
+Now, formulate a final, user-friendly answer based on the tool's output. If there was an error, state it clearly and suggest next steps.`;
+
+    const finalLlmResponse = await ai.generate({ model: 'openai/gpt-4o', prompt: finalPrompt });
     const answer = finalLlmResponse.text;
-    console.log('[mainAssistantFlow] Returning to frontend:', JSON.stringify({
-      answer,
-    }, null, 2));
-  
-   
 
     return {
       answer,
       sqlQuery: String(toolOutput.sqlQuery || ''),
-      retrievedContext: String(toolOutput.retrievedContext || '')
-    };                  
+      retrievedContext,
+    };
   }
 );

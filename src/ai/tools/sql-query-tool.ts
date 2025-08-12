@@ -49,7 +49,7 @@ export const executeQueryTool = ai.defineTool(
     
     try {
       // Step 1: Retrieve relevant context from the vector database.
-      const searchResults = await searchCodebook(input.nlQuestion, 5);
+      const searchResults = await searchCodebook(input.nlQuestion, 7);
       retrievedContext = searchResults
           .map((result, idx) => {
             console.log(`[executeQueryTool] Vector match #${idx+1} (sim=${(result as any).similarity ?? 'n/a'}):`, (result as any).content?.slice(0, 200));
@@ -72,7 +72,7 @@ export const executeQueryTool = ai.defineTool(
           ? '\n\nNote: If no explicit "familiarity" variable is present in the codebook context, use "trstprl" (trust in parliament) as the proxy measure and aggregate by "cntry".'
           : '';
 
-      const sqlQuestion = `${input.nlQuestion}${hint}`;
+      const sqlQuestion = `${input.nlQuestion}`;
       console.log('[executeQueryTool] NL question after heuristic hint:', sqlQuestion);
 
       // Step 2: Generate SQL using the provided question (+ optional hint) and retrieved context
@@ -103,9 +103,9 @@ export const executeQueryTool = ai.defineTool(
             .filter(w => !['the','and','or','for','is','are','of','to','in','by','with','as','on','at','be','an','a','this','that','these','those','from','not','no','yes','it','its','if','then','else','when','where','which','was','were','has','have','had','can','could','should','would','may','might','will','shall','data','variable','codebook','column','columns','table','ess1','ESS1'].includes(w.toLowerCase()))
             .slice(0, 6);
           // Ensure essential likely columns show up if present in context
-          const prioritized = ['cntry','trstprl','agea','gndr'].filter(c => retrievedContext.toLowerCase().includes(c));
+          const prioritized = ['cntry','agea','gndr'].filter(c => retrievedContext.toLowerCase().includes(c));
           const combined = Array.from(new Set([...prioritized, ...matches]));
-          return combined.length > 0 ? combined : ['cntry','trstprl'];
+          return combined.length > 0 ? combined : ['cntry'];
         })();
 
         const placeholderSelectList = placeholderColumns.map(c => `CAST(${c} AS NUMERIC) AS ${c}`).join(', ');
