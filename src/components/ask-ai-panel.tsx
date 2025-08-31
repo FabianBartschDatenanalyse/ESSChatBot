@@ -1,6 +1,7 @@
 "use client";
 
 import React from 'react';
+import Image from 'next/image';
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -16,7 +17,6 @@ import { Loader2, Send } from 'lucide-react';
 import { type Conversation, type Message } from '@/src/lib/types';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/src/components/ui/accordion';
 import { Code2, Database } from 'lucide-react';
-import Logo from '@/src/components/logo';
 
 const formSchema = z.object({
   question: z.string().min(1, 'Question cannot be empty.'),
@@ -58,13 +58,13 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
         history: historyForApi
       });
 
-      console.log('[AskAiPanel] Result from mainAssistant:', result); // <--- HIER
-
       const assistantMessage: Message = {
         role: 'assistant',
         content: result.answer,
         sqlQuery: result.sqlQuery,
         retrievedContext: result.retrievedContext,
+        pngDataUrl: result.pngDataUrl,
+        vegaLiteSpec: result.vegaLiteSpec,
       };
       
       const finalMessages = [...newMessages, assistantMessage];
@@ -99,14 +99,27 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
               )}
               <div className={`rounded-lg p-3 max-w-[80%] ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
               <div className="text-sm whitespace-pre-wrap">{message.content}</div>
-                {(message.sqlQuery || message.retrievedContext) && (
+
+               {message.pngDataUrl && (
+                  <div className="mt-4 rounded-md bg-background/50 p-2">
+                    <Image 
+                      src={message.pngDataUrl}
+                      alt="Generated chart"
+                      width={500}
+                      height={400}
+                      className="object-contain"
+                    />
+                  </div>
+                )}
+
+                {(message.sqlQuery || message.retrievedContext || message.vegaLiteSpec) && (
                    <Accordion type="single" collapsible className="w-full mt-2">
                       <AccordionItem value="details" className='border-0'>
                         <AccordionTrigger className='text-xs py-1 hover:no-underline'>
                           Show Details
                         </AccordionTrigger>
                         <AccordionContent>
-                           {message.sqlQuery && message.sqlQuery.trim().length > 0 && (
+                           {message.sqlQuery && (
                             <div className="space-y-2 mt-2">
                                 <h4 className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
                                     <Code2 className="h-4 w-4" />
@@ -117,17 +130,17 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                                 </pre>
                             </div>
                            )}
-                           {(!message.sqlQuery || message.sqlQuery.trim().length === 0) && message.role === 'assistant' && (
-                            <div className="space-y-2 mt-2">
-                              <h4 className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-                                <Code2 className="h-4 w-4" />
-                                SQL Query
-                              </h4>
-                              <pre className="p-2 bg-background/50 rounded-md text-xs overflow-x-auto max-h-40 overflow-y-auto">
-                                <code className="font-mono text-muted-foreground break-words whitespace-pre-wrap">Not provided by the tool.</code>
-                              </pre>
-                            </div>
-                           )}
+                            {message.vegaLiteSpec && (
+                              <div className="space-y-2 mt-4">
+                                  <h4 className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+                                      <Code2 className="h-4 w-4" />
+                                      Vega-Lite Spec
+                                  </h4>
+                                  <pre className="p-2 bg-background/50 rounded-md text-xs overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto">
+                                      <code className="font-mono break-words whitespace-pre-wrap">{JSON.stringify(message.vegaLiteSpec, null, 2)}</code>
+                                  </pre>
+                              </div>
+                            )}
                            {message.retrievedContext && (
                             <div className="space-y-2 mt-4">
                                 <h4 className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
@@ -181,7 +194,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
               render={({ field }) => (
                 <FormItem className="flex-1">
                   <FormControl>
-                    <Input placeholder="e.g., What is the average trust in parliament per country?" {...field} disabled={isLoading} />
+                    <Input placeholder="e.g., Show me the average happiness per country" {...field} disabled={isLoading} />
                   </FormControl>
                 </FormItem>
               )}
@@ -195,5 +208,3 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
     </div>
   );
 }
-
-    

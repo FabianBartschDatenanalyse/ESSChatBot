@@ -9,6 +9,8 @@ export const MessageSchema = z.object({
   content: z.string(),
   sqlQuery: z.string().optional(),
   retrievedContext: z.string().optional(),
+  vegaLiteSpec: z.any().optional(),
+  pngDataUrl: z.string().optional(),
 });
 export type Message = z.infer<typeof MessageSchema>;
 
@@ -21,5 +23,3 @@ export type Conversation = {
   title: string;
   messages: Message[];
 };
-
-    
