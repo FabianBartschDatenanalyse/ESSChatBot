@@ -1,4 +1,11 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/src/ai/genkit', () => ({
+  ai: {
+    defineTool: (_config: any, handler: any) => handler,
+    generate: vi.fn(),
+  },
+}));
 
 let renderVegaLiteToPngDataUrl: typeof import('./chart-tool')['renderVegaLiteToPngDataUrl'];
 
