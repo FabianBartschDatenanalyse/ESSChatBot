@@ -66,15 +66,15 @@ const ChartPlanSchema = z.object({
   sqlQuery: z.string().describe('Konformer SQL (nur "ESS1")'),
 });
 
-const ChartToolInput = z.object({
+const ChartToolInputSchema = z.object({
   nlQuestion: z.string(),
   history: z
     .array(z.object({ role: z.enum(['user', 'assistant', 'tool']), content: z.string() }))
     .optional(),
 });
-export type ChartToolInput = z.infer<typeof ChartToolInput>;
+type ChartToolInput = z.infer<typeof ChartToolInputSchema>;
 
-const ChartToolOutput = z.object({
+const ChartToolOutputSchema = z.object({
   imageDataUrl: z.string().optional(), // data:image/png;base64,...
   vegaLiteSpec: z.any().optional(), // Spec as plain JSON
   sqlQuery: z.string().optional(),
@@ -83,7 +83,7 @@ const ChartToolOutput = z.object({
   caption: z.string().optional(),
   error: z.string().optional(),
 });
-export type ChartToolOutput = z.infer<typeof ChartToolOutput>;
+type ChartToolOutput = z.infer<typeof ChartToolOutputSchema>;
 
 /** ------------------------------
  *  HILFSFUNKTIONEN (bestehend)
@@ -196,7 +196,7 @@ ${codebook}
 const toPlain = <T>(obj: T): T => JSON.parse(JSON.stringify(obj));
 
 // 1) Whitelist-Schema für Styling-Operationen
-export const StyleEdit = z.discriminatedUnion('op', [
+const StyleEdit = z.discriminatedUnion('op', [
   z.object({ op: z.literal('setTitle'), text: z.string() }),
   z.object({ op: z.literal('setSubtitle'), text: z.string() }),
   z.object({ op: z.literal('setSize'), width: z.number().int().positive(), height: z.number().int().positive() }),
@@ -216,11 +216,11 @@ export const StyleEdit = z.discriminatedUnion('op', [
   z.object({ op: z.literal('showValueLabels'), on: z.boolean() }),
   z.object({ op: z.literal('sortBy'), field: z.string(), dir: z.enum(['asc','desc']) }),
 ]);
-export const StyleEdits = z.array(StyleEdit).min(1);
-export type StyleEdits = z.infer<typeof StyleEdits>;
+const StyleEdits = z.array(StyleEdit).min(1);
+type StyleEdits = z.infer<typeof StyleEdits>;
 
 // 2) Deterministischer Patch-Applier
-export async function applyStyleEdits(spec: any, edits: StyleEdits) {
+async function applyStyleEdits(spec: any, edits: StyleEdits) {
   const ensure = (obj: any, path: string[], seed: any = {}) => {
     let cur = obj;
     for (let i = 0; i < path.length; i++) {
@@ -387,7 +387,7 @@ Nutzerwunsch:
 `;
 
 // 4) styleTool-Definition (Export)
-export const styleTool = ai.defineTool(
+const styleToolInternal = ai.defineTool(
   {
     name: 'styleTool',
     description: 'Nimmt reine Styling-Änderungen an einer bestehenden Vega-Lite-Spec vor.',
@@ -433,15 +433,22 @@ export const styleTool = ai.defineTool(
   }
 );
 
+type StyleToolInput = Parameters<typeof styleToolInternal>[0];
+type StyleToolOutput = Awaited<ReturnType<typeof styleToolInternal>>;
+
+export async function styleTool(input: StyleToolInput): Promise<StyleToolOutput> {
+  return styleToolInternal(input);
+}
+
 /** ------------------------------
  *  CHART-TOOL (bestehend)
  *  ------------------------------ */
-export const chartTool = ai.defineTool(
+const chartToolInternal = ai.defineTool(
   {
     name: 'chartTool',
     description: 'Erzeugt Diagramme (PNG, Vega-Lite Spec) basierend auf einer NL-Frage zu ESS-Daten.',
-    inputSchema: ChartToolInput,
-    outputSchema: ChartToolOutput,
+    inputSchema: ChartToolInputSchema,
+    outputSchema: ChartToolOutputSchema,
   },
   async (input): Promise<ChartToolOutput> => {
     try {
@@ -796,3 +803,7 @@ export const chartTool = ai.defineTool(
     }
   }
 );
+
+export async function chartTool(input: ChartToolInput): Promise<ChartToolOutput> {
+  return chartToolInternal(input);
+}
