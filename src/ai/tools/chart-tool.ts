@@ -8,48 +8,183 @@ import { executeQuery } from '@/src/lib/data-service';
 // NEU: Font-Handling & Canvas-Rendering
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { Resvg } from '@resvg/resvg-js';
+import zlib from 'node:zlib';
+
+const isModuleNotFoundError = (error: unknown, specifier: string) => {
+  if (!error) return false;
+  const message = typeof error === 'string' ? error : (error as Error)?.message ?? '';
+  const code = (error as any)?.code;
+  return (
+    code === 'ERR_MODULE_NOT_FOUND' ||
+    code === 'MODULE_NOT_FOUND' ||
+    message.includes(`Cannot find module '${specifier}'`) ||
+    message.includes(`Cannot find package '${specifier}'`) ||
+    message.includes('Failed to resolve import') ||
+    message.includes('Could not dynamically import')
+  );
+};
+
+async function tryImport(specifier: string) {
+  try {
+    return await import(/* @vite-ignore */ specifier);
+  } catch (error) {
+    if (isModuleNotFoundError(error, specifier)) {
+      return null;
+    }
+    throw error;
+  }
+}
 
 /** ------------------------------
  *  RENDERER (bestehend)
  *  ------------------------------ */
 export async function renderVegaLiteToPngDataUrl(spec: any): Promise<string> {
-  const vega = await import('vega');
-  const vegaLite = await import('vega-lite');
+  const [vegaModule, vegaLiteModule, resvgModule] = await Promise.all([
+    tryImport('vega'),
+    tryImport('vega-lite'),
+    tryImport('@resvg/resvg-js'),
+  ]);
 
-  // 1) VL → Vega → SVG
-  const compiled = vegaLite.compile(spec).spec;
-  const view = new vega.View(vega.parse(compiled), { renderer: 'svg' });
-  const svg = await view.toSVG();
+  const vega = vegaModule?.default ?? vegaModule;
+  const vegaLite = vegaLiteModule?.default ?? vegaLiteModule;
+  const ResvgCtor =
+    resvgModule?.Resvg ?? resvgModule?.default?.Resvg ?? resvgModule?.default ?? null;
 
-  console.log('Text-Knoten im SVG:', (svg.match(/<text[\s>]/g) || []).length);
+  if (vega && vegaLite && ResvgCtor) {
+    try {
+      const compiled = vegaLite.compile(spec).spec;
+      const view = new vega.View(vega.parse(compiled), { renderer: 'svg' });
+      const svg = await view.toSVG();
 
-  // 2) Fonts aus public/fonts
-  const fontDir = path.join(process.cwd(), 'public', 'fonts');
-  const regularPath = path.join(fontDir, 'DejaVuSans.ttf');
-  const boldPath    = path.join(fontDir, 'DejaVuSans-Bold.ttf');
+      const fontDir = path.join(process.cwd(), 'public', 'fonts');
+      const regularPath = path.join(fontDir, 'DejaVuSans.ttf');
+      const boldPath = path.join(fontDir, 'DejaVuSans-Bold.ttf');
 
-  // Fail fast, wenn was fehlt
-  await Promise.all([regularPath, boldPath].map(async p => {
-    try { await fs.access(p); }
-    catch { throw new Error(`Font fehlt: ${p}`); }
-  }));
+      await Promise.all(
+        [regularPath, boldPath].map(async (p) => {
+          try {
+            await fs.access(p);
+          } catch {
+            throw new Error(`Font fehlt: ${p}`);
+          }
+        }),
+      );
 
-  // 3) Resvg – WICHTIG: fontFiles (nicht fontDirs)
-  const resvg = new Resvg(svg, {
-    font: {
-      loadSystemFonts: false,
-      fontFiles: [regularPath, boldPath], // <— hier!
-      defaultFontFamily: 'DejaVu Sans',
-      sansSerifFamily:  'DejaVu Sans',
-      serifFamily:      'DejaVu Sans',
-      monospaceFamily:  'DejaVu Sans',
-    },
-  });
+      const resvg = new ResvgCtor(svg, {
+        font: {
+          loadSystemFonts: false,
+          fontFiles: [regularPath, boldPath],
+          defaultFontFamily: 'DejaVu Sans',
+          sansSerifFamily: 'DejaVu Sans',
+          serifFamily: 'DejaVu Sans',
+          monospaceFamily: 'DejaVu Sans',
+        },
+      });
 
-  const png = resvg.render().asPng();
-  return `data:image/png;base64,${png.toString('base64')}`;
+      const png = resvg.render().asPng();
+      return `data:image/png;base64,${png.toString('base64')}`;
+    } catch (error) {
+      console.warn('Vega Renderer fehlgeschlagen, verwende Fallback.', error);
+    }
+  }
+
+  return renderWithFallback(spec);
 }
+
+type RGBA = [number, number, number, number];
+
+interface PixelBuffer {
+  data: Uint8ClampedArray;
+  width: number;
+  height: number;
+}
+
+interface AxisEncoding {
+  field?: string;
+  type?: string;
+  title?: string;
+  sort?: string | { field?: string; order?: 'ascending' | 'descending' };
+}
+
+interface EncodingConfig {
+  x?: AxisEncoding;
+  y?: AxisEncoding;
+  color?: { field?: string };
+}
+
+const BACKGROUND_COLOR: RGBA = [255, 255, 255, 255];
+const AXIS_COLOR: RGBA = [71, 85, 105, 255];
+const GRID_COLOR: RGBA = [226, 232, 240, 255];
+const BAR_COLOR: RGBA = [59, 130, 246, 255];
+const LINE_COLOR: RGBA = [220, 38, 38, 255];
+const POINT_COLOR: RGBA = [34, 197, 94, 255];
+const TEXT_COLOR: RGBA = [30, 41, 59, 255];
+const VALUE_TEXT_COLOR: RGBA = [15, 23, 42, 255];
+
+const FONT_WIDTH = 5;
+const FONT_HEIGHT = 7;
+
+const FONT_5X7: Record<string, string[]> = {
+  ' ': ['     ', '     ', '     ', '     ', '     ', '     ', '     '],
+  '!': ['  #  ', '  #  ', '  #  ', '  #  ', '  #  ', '     ', '  #  '],
+  '"': [' # # ', ' # # ', ' # # ', '     ', '     ', '     ', '     '],
+  '#': [' # # ', '#####', ' # # ', ' # # ', '#####', ' # # ', '     '],
+  '$': [' ### ', '# #  ', '#    ', ' ### ', '   # ', '# #  ', ' ### '],
+  '%': ['#   #', '   # ', '  #  ', ' #   ', '#   #', '     ', '     '],
+  '&': [' ##  ', '#  # ', '# #  ', ' ## #', '#  # ', '#  # ', ' ## #'],
+  '\'': ['  #  ', '  #  ', ' #   ', '     ', '     ', '     ', '     '],
+  '(': ['   # ', '  #  ', ' #   ', ' #   ', ' #   ', '  #  ', '   # '],
+  ')': [' #   ', '  #  ', '   # ', '   # ', '   # ', '  #  ', ' #   '],
+  '*': ['     ', ' # # ', '  #  ', '#####', '  #  ', ' # # ', '     '],
+  '+': ['     ', '  #  ', '  #  ', '#####', '  #  ', '  #  ', '     '],
+  ',': ['     ', '     ', '     ', '     ', '  ## ', '  #  ', ' #   '],
+  '-': ['     ', '     ', '     ', ' ### ', '     ', '     ', '     '],
+  '.': ['     ', '     ', '     ', '     ', '     ', ' ### ', ' ### '],
+  '/': ['    #', '   # ', '   # ', '  #  ', ' #   ', '#    ', '#    '],
+  '0': [' ### ', '#  ##', '# # #', '# # #', '##  #', '#   #', ' ### '],
+  '1': ['  #  ', ' ##  ', '  #  ', '  #  ', '  #  ', '  #  ', ' ### '],
+  '2': [' ### ', '#   #', '    #', '   # ', '  #  ', ' #   ', '#####'],
+  '3': [' ### ', '#   #', '    #', ' ### ', '    #', '#   #', ' ### '],
+  '4': ['   # ', '  ## ', ' # # ', '#  # ', '#####', '   # ', '   # '],
+  '5': ['#####', '#    ', '#    ', '#### ', '    #', '#   #', ' ### '],
+  '6': [' ### ', '#   #', '#    ', '#### ', '#   #', '#   #', ' ### '],
+  '7': ['#####', '    #', '   # ', '  #  ', '  #  ', '  #  ', '  #  '],
+  '8': [' ### ', '#   #', '#   #', ' ### ', '#   #', '#   #', ' ### '],
+  '9': [' ### ', '#   #', '#   #', ' ####', '    #', '#   #', ' ### '],
+  ':': ['     ', ' ### ', ' ### ', '     ', ' ### ', ' ### ', '     '],
+  ';': ['     ', ' ### ', ' ### ', '     ', '  ## ', '  #  ', ' #   '],
+  '<': ['   # ', '  #  ', ' #   ', '#    ', ' #   ', '  #  ', '   # '],
+  '=': ['     ', '#####', '     ', '#####', '     ', '#####', '     '],
+  '>': [' #   ', '  #  ', '   # ', '    #', '   # ', '  #  ', ' #   '],
+  '?': [' ### ', '#   #', '    #', '   # ', '  #  ', '     ', '  #  '],
+  '@': [' ### ', '#   #', '# # #', '# ## ', '#    ', '#   #', ' ### '],
+  'A': ['  #  ', ' # # ', '#   #', '#   #', '#####', '#   #', '#   #'],
+  'B': ['#### ', '#   #', '#   #', '#### ', '#   #', '#   #', '#### '],
+  'C': [' ### ', '#   #', '#    ', '#    ', '#    ', '#   #', ' ### '],
+  'D': ['#### ', '#   #', '#   #', '#   #', '#   #', '#   #', '#### '],
+  'E': ['#####', '#    ', '#    ', '#### ', '#    ', '#    ', '#####'],
+  'F': ['#####', '#    ', '#    ', '#### ', '#    ', '#    ', '#    '],
+  'G': [' ### ', '#   #', '#    ', '# ###', '#   #', '#   #', ' ### '],
+  'H': ['#   #', '#   #', '#   #', '#####', '#   #', '#   #', '#   #'],
+  'I': [' ### ', '  #  ', '  #  ', '  #  ', '  #  ', '  #  ', ' ### '],
+  'J': ['  ###', '   # ', '   # ', '   # ', '#  # ', '#  # ', ' ##  '],
+  'K': ['#   #', '#  # ', '# #  ', '##   ', '# #  ', '#  # ', '#   #'],
+  'L': ['#    ', '#    ', '#    ', '#    ', '#    ', '#    ', '#####'],
+  'M': ['#   #', '## ##', '# # #', '# # #', '#   #', '#   #', '#   #'],
+  'N': ['#   #', '##  #', '# # #', '#  ##', '#   #', '#   #', '#   #'],
+  'O': [' ### ', '#   #', '#   #', '#   #', '#   #', '#   #', ' ### '],
+  'P': ['#### ', '#   #', '#   #', '#### ', '#    ', '#    ', '#    '],
+  'Q': [' ### ', '#   #', '#   #', '#   #', '# # #', '#  # ', ' ## #'],
+  'R': ['#### ', '#   #', '#   #', '#### ', '# #  ', '#  # ', '#   #'],
+  'S': [' ### ', '#   #', '#    ', ' ### ', '    #', '#   #', ' ### '],
+  'T': ['#####', '  #  ', '  #  ', '  #  ', '  #  ', '  #  ', '  #  '],
+  'U': ['#   #', '#   #', '#   #', '#   #', '#   #', '#   #', ' ### '],
+  'V': ['#   #', '#   #', '#   #', '#   #', '#   #', ' # # ', '  #  '],
+  'W': ['#   #', '#   #', '#   #', '# # #', '# # #', '## ##', '#   #'],
+  'X': ['#   #', '#   #', ' # # ', '  #  ', ' # # ', '#   #', '#   #'],
+  'Y': ['#   #', '#   #', ' # # ', '  #  ', '  #  ', '  #  ', '  #  '],
+  'Z': ['#####', '    #', '   # ', '  #  ', ' #   ', '#    ', '#####'],
+};
 
 /** ------------------------------
  *  CHART-PLANNER SCHEMA (bestehend)
@@ -66,15 +201,15 @@ const ChartPlanSchema = z.object({
   sqlQuery: z.string().describe('Konformer SQL (nur "ESS1")'),
 });
 
-const ChartToolInput = z.object({
+const ChartToolInputSchema = z.object({
   nlQuestion: z.string(),
   history: z
     .array(z.object({ role: z.enum(['user', 'assistant', 'tool']), content: z.string() }))
     .optional(),
 });
-export type ChartToolInput = z.infer<typeof ChartToolInput>;
+type ChartToolInput = z.infer<typeof ChartToolInputSchema>;
 
-const ChartToolOutput = z.object({
+const ChartToolOutputSchema = z.object({
   imageDataUrl: z.string().optional(), // data:image/png;base64,...
   vegaLiteSpec: z.any().optional(), // Spec as plain JSON
   sqlQuery: z.string().optional(),
@@ -83,7 +218,7 @@ const ChartToolOutput = z.object({
   caption: z.string().optional(),
   error: z.string().optional(),
 });
-export type ChartToolOutput = z.infer<typeof ChartToolOutput>;
+type ChartToolOutput = z.infer<typeof ChartToolOutputSchema>;
 
 /** ------------------------------
  *  HILFSFUNKTIONEN (bestehend)
@@ -143,6 +278,711 @@ const prettyAxisTitle = (k?: string) => {
   return k;
 };
 
+function renderWithFallback(spec: any): string {
+  const width = clampNumber(Number(spec?.width) || 720, 320, 1600);
+  const height = clampNumber(Number(spec?.height) || 420, 240, 1200);
+  const dataValues = Array.isArray(spec?.data?.values) ? spec.data.values : [];
+  if (!dataValues.length) {
+    throw new Error('Fallback renderer benötigt Datenwerte.');
+  }
+
+  const buffer: PixelBuffer = {
+    data: new Uint8ClampedArray(width * height * 4),
+    width,
+    height,
+  };
+  fillBackground(buffer, BACKGROUND_COLOR);
+
+  const baseEncoding: EncodingConfig = spec?.encoding ?? {};
+  const firstLayer = (Array.isArray(spec?.layer) && spec.layer.length ? spec.layer[0] : undefined) as any;
+  const layerEncoding: EncodingConfig = firstLayer?.encoding ?? {};
+
+  const encoding: EncodingConfig = {
+    x: { ...(baseEncoding.x ?? {}), ...(layerEncoding.x ?? {}) },
+    y: { ...(baseEncoding.y ?? {}), ...(layerEncoding.y ?? {}) },
+    color: { ...(baseEncoding.color ?? {}), ...(layerEncoding.color ?? {}) },
+  };
+
+  const rawMark =
+    firstLayer?.mark?.type ?? firstLayer?.mark ?? spec?.mark?.type ?? spec?.mark ?? 'bar';
+  const markType =
+    typeof rawMark === 'string'
+      ? rawMark.toLowerCase()
+      : Array.isArray(rawMark)
+      ? 'bar'
+      : 'bar';
+
+  switch (markType) {
+    case 'bar':
+    case 'rect':
+    case 'rule':
+    case 'area':
+      renderBarChartFallback(buffer, dataValues, encoding);
+      break;
+    case 'line':
+      renderLineChartFallback(buffer, dataValues, encoding, false);
+      break;
+    case 'point':
+    case 'circle':
+    case 'scatter':
+      renderLineChartFallback(buffer, dataValues, encoding, true);
+      break;
+    default:
+      throw new Error(`Fallback-Renderer unterstützt Mark-Typ "${markType}" nicht.`);
+  }
+
+  drawTitle(buffer, spec?.title);
+  const png = encodePng(buffer);
+  return `data:image/png;base64,${png.toString('base64')}`;
+}
+
+function renderBarChartFallback(
+  buffer: PixelBuffer,
+  dataValues: any[],
+  encoding: EncodingConfig,
+) {
+  const width = buffer.width;
+  const height = buffer.height;
+  const margin = {
+    top: 80,
+    right: 40,
+    bottom: 110,
+    left: 100,
+  };
+
+  const xEnc = encoding.x ?? {};
+  const yEnc = encoding.y ?? {};
+
+  let orientation: 'vertical' | 'horizontal' = 'vertical';
+  if (
+    (xEnc.type === 'quantitative' && yEnc.type !== 'quantitative') ||
+    (!yEnc.field && !!xEnc.field)
+  ) {
+    orientation = 'horizontal';
+  }
+
+  const valueField = orientation === 'vertical' ? yEnc.field ?? 'value' : xEnc.field ?? 'value';
+  const categoryField =
+    orientation === 'vertical' ? xEnc.field ?? 'category' : yEnc.field ?? 'category';
+
+  const entries = dataValues
+    .map((row: any) => {
+      const rawCategory = categoryField != null ? row?.[categoryField] : undefined;
+      const rawValue =
+        valueField != null ? row?.[valueField] : row?.value ?? row?.count ?? row?.total;
+      const numericValue =
+        typeof rawValue === 'number'
+          ? rawValue
+          : typeof rawValue === 'string' && looksNumeric(rawValue)
+          ? parseFloat(rawValue)
+          : NaN;
+      return {
+        category:
+          rawCategory == null
+            ? ''
+            : typeof rawCategory === 'string'
+            ? rawCategory
+            : String(rawCategory),
+        value: numericValue,
+      };
+    })
+    .filter((entry) => Number.isFinite(entry.value));
+
+  if (!entries.length) {
+    throw new Error('Keine numerischen Daten für das Rendering gefunden.');
+  }
+
+  const categoryLabels = entries.map((entry) => sanitizeLabel(entry.category) || 'N/A');
+
+  const catEnc = orientation === 'vertical' ? xEnc : yEnc;
+  const sortDirective = typeof catEnc.sort === 'string' ? catEnc.sort : undefined;
+  if (sortDirective) {
+    const descending = sortDirective.startsWith('-');
+    entries.sort((a, b) => (descending ? b.value - a.value : a.value - b.value));
+  }
+
+  const innerWidth = Math.max(20, width - margin.left - margin.right);
+  const innerHeight = Math.max(20, height - margin.top - margin.bottom);
+  const originX = margin.left;
+  const originY = height - margin.bottom;
+
+  const maxValue = Math.max(...entries.map((entry) => entry.value), 0);
+  const safeMax = maxValue <= 0 ? 1 : maxValue;
+
+  const tickStep = computeNiceStep(safeMax, 5);
+  const ticks: number[] = [];
+  for (let tick = 0; tick <= safeMax + tickStep * 0.5; tick += tickStep) {
+    ticks.push(Number(tick.toFixed(6)));
+  }
+  if (ticks.length === 0 || ticks[ticks.length - 1] < safeMax) {
+    ticks.push(Number(safeMax.toFixed(6)));
+  }
+
+  ticks.forEach((tick) => {
+    const ratio = safeMax === 0 ? 0 : Math.min(1, tick / safeMax);
+    if (orientation === 'vertical') {
+      const y = originY - ratio * innerHeight;
+      drawLine(buffer, originX, y, originX + innerWidth, y, GRID_COLOR, tick === 0 ? 2 : 1);
+      if (tick !== 0) {
+        drawText(buffer, originX - 12, y, formatTick(tick), TEXT_COLOR, 1, 'right', 'middle');
+      } else {
+        drawText(buffer, originX - 12, y + 4, '0', TEXT_COLOR, 1, 'right', 'top');
+      }
+    } else {
+      const x = originX + ratio * innerWidth;
+      drawLine(buffer, x, margin.top, x, margin.top + innerHeight, GRID_COLOR, tick === 0 ? 2 : 1);
+      drawText(buffer, x, originY + 16, formatTick(tick), TEXT_COLOR, 1, 'center', 'top');
+    }
+  });
+
+  drawLine(buffer, originX, margin.top, originX, originY, AXIS_COLOR, 2);
+  drawLine(buffer, originX, originY, originX + innerWidth, originY, AXIS_COLOR, 2);
+
+  if (orientation === 'horizontal') {
+    drawLine(buffer, originX, margin.top, originX + innerWidth, margin.top, AXIS_COLOR, 2);
+  }
+
+  const bandCount = entries.length;
+  const bandSpan =
+    (orientation === 'vertical' ? innerWidth : innerHeight) / Math.max(bandCount, 1);
+  const barSize = Math.max(4, Math.min(bandSpan * 0.72, orientation === 'vertical' ? 90 : 48));
+  const gap = Math.max(2, bandSpan - barSize);
+
+  entries.forEach((entry, index) => {
+    const ratio = safeMax === 0 ? 0 : Math.max(0, Math.min(1, entry.value / safeMax));
+    if (orientation === 'vertical') {
+      const barHeight = ratio * innerHeight;
+      const x0 = originX + index * bandSpan + gap / 2;
+      const y0 = originY - barHeight;
+      fillRect(buffer, x0, y0, barSize, barHeight, BAR_COLOR);
+      drawText(
+        buffer,
+        x0 + barSize / 2,
+        y0 - 10,
+        formatTick(entry.value),
+        VALUE_TEXT_COLOR,
+        1,
+        'center',
+        'bottom',
+      );
+      drawText(
+        buffer,
+        x0 + barSize / 2,
+        originY + 18,
+        shortenLabel(categoryLabels[index]),
+        TEXT_COLOR,
+        1,
+        'center',
+        'top',
+      );
+    } else {
+      const barLength = ratio * innerWidth;
+      const y0 = margin.top + index * bandSpan + gap / 2;
+      fillRect(buffer, originX, y0, barLength, barSize, BAR_COLOR);
+      drawText(
+        buffer,
+        originX + barLength + 8,
+        y0 + barSize / 2,
+        formatTick(entry.value),
+        VALUE_TEXT_COLOR,
+        1,
+        'left',
+        'middle',
+      );
+      drawText(
+        buffer,
+        originX - 12,
+        y0 + barSize / 2,
+        shortenLabel(categoryLabels[index]),
+        TEXT_COLOR,
+        1,
+        'right',
+        'middle',
+      );
+    }
+  });
+
+  const valueTitle =
+    orientation === 'vertical'
+      ? sanitizeLabel(yEnc.title ?? prettyAxisTitle(yEnc.field) ?? 'WERT')
+      : sanitizeLabel(xEnc.title ?? prettyAxisTitle(xEnc.field) ?? 'WERT');
+  if (valueTitle) {
+    if (orientation === 'vertical') {
+      drawText(buffer, margin.left - 60, margin.top - 14, valueTitle, TEXT_COLOR, 1, 'center', 'bottom');
+    } else {
+      drawText(buffer, originX + innerWidth / 2, margin.top - 18, valueTitle, TEXT_COLOR, 1, 'center', 'bottom');
+    }
+  }
+
+  const categoryTitle =
+    orientation === 'vertical'
+      ? sanitizeLabel(xEnc.title ?? prettyAxisTitle(xEnc.field) ?? '')
+      : sanitizeLabel(yEnc.title ?? prettyAxisTitle(yEnc.field) ?? '');
+  if (categoryTitle) {
+    if (orientation === 'vertical') {
+      drawText(buffer, originX + innerWidth / 2, originY + 46, categoryTitle, TEXT_COLOR, 1, 'center', 'top');
+    } else {
+      drawText(buffer, margin.left - 70, margin.top + innerHeight / 2, categoryTitle, TEXT_COLOR, 1, 'center', 'middle');
+    }
+  }
+}
+
+function renderLineChartFallback(
+  buffer: PixelBuffer,
+  dataValues: any[],
+  encoding: EncodingConfig,
+  scatterOnly: boolean,
+) {
+  const width = buffer.width;
+  const height = buffer.height;
+  const margin = {
+    top: 80,
+    right: 50,
+    bottom: 90,
+    left: 100,
+  };
+
+  const xEnc = encoding.x ?? {};
+  const yEnc = encoding.y ?? {};
+
+  const xField = xEnc.field ?? 'x';
+  const yField = yEnc.field ?? 'y';
+
+  const entries = dataValues
+    .map((row: any, index: number) => {
+      const rawX = row?.[xField];
+      const rawY = row?.[yField];
+      const numericY =
+        typeof rawY === 'number'
+          ? rawY
+          : typeof rawY === 'string' && looksNumeric(rawY)
+          ? parseFloat(rawY)
+          : NaN;
+      let numericX: number | null = null;
+      if (typeof rawX === 'number') {
+        numericX = rawX;
+      } else if (typeof rawX === 'string' && looksNumeric(rawX)) {
+        numericX = parseFloat(rawX);
+      }
+      return {
+        rawX,
+        numericX,
+        numericY,
+        index,
+      };
+    })
+    .filter((entry) => Number.isFinite(entry.numericY));
+
+  if (!entries.length) {
+    throw new Error('Keine numerischen Daten für das Rendering gefunden.');
+  }
+
+  const hasNumericX = entries.every((entry) => entry.numericX != null);
+  const xPositions = hasNumericX
+    ? entries.map((entry) => entry.numericX ?? 0)
+    : entries.map((_, index) => index);
+  const labels = entries.map((entry) =>
+    sanitizeLabel(
+      hasNumericX
+        ? entry.rawX != null
+          ? String(entry.rawX)
+          : String(entry.numericX ?? entry.index)
+        : entry.rawX != null
+        ? String(entry.rawX)
+        : String(entry.index),
+    ),
+  );
+
+  let xMin = Math.min(...xPositions);
+  let xMax = Math.max(...xPositions);
+  if (xMin === xMax) {
+    xMin -= 1;
+    xMax += 1;
+  }
+
+  let yMin = Math.min(...entries.map((entry) => entry.numericY), 0);
+  let yMax = Math.max(...entries.map((entry) => entry.numericY), 0);
+  if (yMin === yMax) {
+    yMin -= 1;
+    yMax += 1;
+  }
+  if (yMax <= yMin) {
+    yMax = yMin + 1;
+  }
+
+  const innerWidth = Math.max(20, width - margin.left - margin.right);
+  const innerHeight = Math.max(20, height - margin.top - margin.bottom);
+  const originX = margin.left;
+  const originY = height - margin.bottom;
+
+  const xScale = (value: number) => originX + ((value - xMin) / (xMax - xMin)) * innerWidth;
+  const yScale = (value: number) => originY - ((value - yMin) / (yMax - yMin)) * innerHeight;
+
+  const yTickStep = computeNiceStep(Math.max(Math.abs(yMax - yMin), 1), 5);
+  const yTicks: number[] = [];
+  for (
+    let tick = Math.ceil(yMin / yTickStep) * yTickStep;
+    tick <= yMax + 1e-6;
+    tick += yTickStep
+  ) {
+    yTicks.push(Number(tick.toFixed(6)));
+  }
+  if (!yTicks.some((tick) => Math.abs(tick) < 1e-6)) {
+    yTicks.push(0);
+  }
+  yTicks.sort((a, b) => a - b);
+
+  yTicks.forEach((tick) => {
+    const y = yScale(tick);
+    drawLine(
+      buffer,
+      originX,
+      y,
+      originX + innerWidth,
+      y,
+      GRID_COLOR,
+      Math.abs(tick) < 1e-6 ? 2 : 1,
+    );
+    drawText(buffer, originX - 12, y, formatTick(tick), TEXT_COLOR, 1, 'right', 'middle');
+  });
+
+  if (hasNumericX) {
+    const xTickStep = computeNiceStep(Math.max(Math.abs(xMax - xMin), 1), Math.min(5, entries.length));
+    for (
+      let tick = Math.ceil(xMin / xTickStep) * xTickStep;
+      tick <= xMax + 1e-6;
+      tick += xTickStep
+    ) {
+      const x = xScale(tick);
+      drawLine(buffer, x, margin.top, x, originY, GRID_COLOR, 1);
+      drawText(buffer, x, originY + 18, formatTick(tick), TEXT_COLOR, 1, 'center', 'top');
+    }
+  } else if (entries.length <= 12) {
+    entries.forEach((_, idx) => {
+      const x = xScale(xPositions[idx]);
+      drawLine(buffer, x, margin.top, x, originY, GRID_COLOR, 1);
+      drawText(buffer, x, originY + 18, shortenLabel(labels[idx]), TEXT_COLOR, 1, 'center', 'top');
+    });
+  } else {
+    const sample = new Set<number>([0, entries.length - 1, Math.floor((entries.length - 1) / 2)]);
+    sample.forEach((idx) => {
+      const x = xScale(xPositions[idx]);
+      drawLine(buffer, x, margin.top, x, originY, GRID_COLOR, 1);
+      drawText(buffer, x, originY + 18, shortenLabel(labels[idx]), TEXT_COLOR, 1, 'center', 'top');
+    });
+  }
+
+  drawLine(buffer, originX, margin.top, originX, originY, AXIS_COLOR, 2);
+  drawLine(buffer, originX, originY, originX + innerWidth, originY, AXIS_COLOR, 2);
+
+  const sorted = entries
+    .map((entry, idx) => ({ entry, xValue: xPositions[idx], label: labels[idx] }))
+    .sort((a, b) => a.xValue - b.xValue);
+
+  if (!scatterOnly && sorted.length > 1) {
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1];
+      const current = sorted[i];
+      drawLine(
+        buffer,
+        xScale(prev.xValue),
+        yScale(prev.entry.numericY),
+        xScale(current.xValue),
+        yScale(current.entry.numericY),
+        LINE_COLOR,
+        2,
+      );
+    }
+  }
+
+  sorted.forEach((item) => {
+    const cx = xScale(item.xValue);
+    const cy = yScale(item.entry.numericY);
+    drawCircle(buffer, cx, cy, 4, scatterOnly ? POINT_COLOR : LINE_COLOR);
+    drawText(buffer, cx, cy - 10, formatTick(item.entry.numericY), VALUE_TEXT_COLOR, 1, 'center', 'bottom');
+  });
+
+  const xTitle = sanitizeLabel(xEnc.title ?? prettyAxisTitle(xEnc.field) ?? '');
+  if (xTitle) {
+    drawText(buffer, originX + innerWidth / 2, originY + 46, xTitle, TEXT_COLOR, 1, 'center', 'top');
+  }
+  const yTitle = sanitizeLabel(yEnc.title ?? prettyAxisTitle(yEnc.field) ?? '');
+  if (yTitle) {
+    drawText(buffer, margin.left - 60, margin.top - 18, yTitle, TEXT_COLOR, 1, 'center', 'bottom');
+  }
+}
+
+function drawTitle(buffer: PixelBuffer, rawTitle: any) {
+  const width = buffer.width;
+  if (!rawTitle) return;
+
+  let mainTitle: string | undefined;
+  let subtitle: string | undefined;
+  if (typeof rawTitle === 'string') {
+    mainTitle = rawTitle;
+  } else if (typeof rawTitle === 'object') {
+    mainTitle = typeof rawTitle.text === 'string' ? rawTitle.text : undefined;
+    subtitle = typeof rawTitle.subtitle === 'string' ? rawTitle.subtitle : undefined;
+  }
+
+  const normalizedTitle = sanitizeLabel(mainTitle ?? '');
+  const normalizedSubtitle = sanitizeLabel(subtitle ?? '');
+
+  if (normalizedTitle) {
+    drawText(buffer, width / 2, 36, normalizedTitle, TEXT_COLOR, 2, 'center', 'middle');
+  }
+  if (normalizedSubtitle) {
+    drawText(buffer, width / 2, 64, normalizedSubtitle, TEXT_COLOR, 1, 'center', 'middle');
+  }
+}
+
+function fillBackground(buffer: PixelBuffer, color: RGBA) {
+  for (let i = 0; i < buffer.data.length; i += 4) {
+    buffer.data[i] = color[0];
+    buffer.data[i + 1] = color[1];
+    buffer.data[i + 2] = color[2];
+    buffer.data[i + 3] = color[3];
+  }
+}
+
+function setPixel(buffer: PixelBuffer, x: number, y: number, color: RGBA) {
+  const px = Math.floor(x);
+  const py = Math.floor(y);
+  if (px < 0 || px >= buffer.width || py < 0 || py >= buffer.height) return;
+  const idx = (py * buffer.width + px) * 4;
+  buffer.data[idx] = color[0];
+  buffer.data[idx + 1] = color[1];
+  buffer.data[idx + 2] = color[2];
+  buffer.data[idx + 3] = color[3];
+}
+
+function fillRect(buffer: PixelBuffer, x: number, y: number, width: number, height: number, color: RGBA) {
+  if (width <= 0 || height <= 0) return;
+  const startX = Math.max(0, Math.floor(x));
+  const startY = Math.max(0, Math.floor(y));
+  const endX = Math.min(buffer.width - 1, Math.ceil(x + width) - 1);
+  const endY = Math.min(buffer.height - 1, Math.ceil(y + height) - 1);
+  for (let py = startY; py <= endY; py++) {
+    for (let px = startX; px <= endX; px++) {
+      setPixel(buffer, px, py, color);
+    }
+  }
+}
+
+function drawLine(
+  buffer: PixelBuffer,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  color: RGBA,
+  thickness = 1,
+) {
+  let cx = Math.round(x0);
+  let cy = Math.round(y0);
+  const tx = Math.round(x1);
+  const ty = Math.round(y1);
+  const dx = Math.abs(tx - cx);
+  const dy = Math.abs(ty - cy);
+  const sx = cx < tx ? 1 : -1;
+  const sy = cy < ty ? 1 : -1;
+  let err = dx - dy;
+
+  while (true) {
+    fillRect(buffer, cx - thickness / 2, cy - thickness / 2, thickness, thickness, color);
+    if (cx === tx && cy === ty) break;
+    const e2 = err * 2;
+    if (e2 > -dy) {
+      err -= dy;
+      cx += sx;
+    }
+    if (e2 < dx) {
+      err += dx;
+      cy += sy;
+    }
+  }
+}
+
+function drawCircle(buffer: PixelBuffer, cx: number, cy: number, radius: number, color: RGBA) {
+  const r = Math.max(1, radius);
+  const startX = Math.floor(cx - r);
+  const endX = Math.ceil(cx + r);
+  const startY = Math.floor(cy - r);
+  const endY = Math.ceil(cy + r);
+  const rSquared = r * r;
+  for (let y = startY; y <= endY; y++) {
+    for (let x = startX; x <= endX; x++) {
+      const dx = x - cx;
+      const dy = y - cy;
+      if (dx * dx + dy * dy <= rSquared) {
+        setPixel(buffer, x, y, color);
+      }
+    }
+  }
+}
+
+function drawText(
+  buffer: PixelBuffer,
+  x: number,
+  y: number,
+  rawText: string,
+  color: RGBA,
+  scale = 1,
+  align: 'left' | 'center' | 'right' = 'left',
+  baseline: 'top' | 'middle' | 'bottom' = 'top',
+) {
+  const text = sanitizeLabel(rawText);
+  if (!text) return;
+
+  const glyphHeight = FONT_HEIGHT * scale;
+  const spacing = scale;
+  const totalWidth = measureText(text, scale);
+
+  let startX = x;
+  if (align === 'center') startX = x - totalWidth / 2;
+  else if (align === 'right') startX = x - totalWidth;
+
+  let startY = y;
+  if (baseline === 'middle') startY = y - glyphHeight / 2;
+  else if (baseline === 'bottom') startY = y - glyphHeight;
+
+  let cursorX = startX;
+  for (const char of text) {
+    const glyph = FONT_5X7[char] ?? FONT_5X7['?'] ?? FONT_5X7[' '];
+    for (let rowIdx = 0; rowIdx < glyph.length; rowIdx++) {
+      const row = glyph[rowIdx];
+      for (let colIdx = 0; colIdx < row.length; colIdx++) {
+        if (row[colIdx] === '#') {
+          fillRect(
+            buffer,
+            cursorX + colIdx * scale,
+            startY + rowIdx * scale,
+            scale,
+            scale,
+            color,
+          );
+        }
+      }
+    }
+    cursorX += glyph[0].length * scale + spacing;
+  }
+}
+
+function measureText(text: string, scale: number) {
+  if (!text) return 0;
+  let width = 0;
+  for (const char of text) {
+    const glyph = FONT_5X7[char] ?? FONT_5X7['?'] ?? FONT_5X7[' '];
+    width += glyph[0].length * scale + scale;
+  }
+  return Math.max(0, width - scale);
+}
+
+function sanitizeLabel(input: unknown): string {
+  if (typeof input !== 'string') {
+    if (input == null) return '';
+    return String(input);
+  }
+  let text = input.normalize('NFD').replace(/ß/g, 'SS').replace(/[̀-ͯ]/g, '');
+  text = text.toUpperCase();
+  text = text.replace(/[^A-Z0-9 .,:%()!?'#&+\/-]/g, ' ');
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function shortenLabel(label: string, maxLength = 16) {
+  if (!label) return '';
+  if (label.length <= maxLength) return label;
+  return `${label.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
+function computeNiceStep(range: number, tickCount: number) {
+  if (!Number.isFinite(range) || range <= 0) return 1;
+  const rawStep = range / Math.max(1, tickCount);
+  const exponent = Math.floor(Math.log10(rawStep));
+  const fraction = rawStep / Math.pow(10, exponent);
+  let niceFraction = 1;
+  if (fraction <= 1) niceFraction = 1;
+  else if (fraction <= 2) niceFraction = 2;
+  else if (fraction <= 5) niceFraction = 5;
+  else niceFraction = 10;
+  return niceFraction * Math.pow(10, exponent);
+}
+
+function formatTick(value: number) {
+  if (!Number.isFinite(value)) return '';
+  const abs = Math.abs(value);
+  if (abs >= 100) return Math.round(value).toString();
+  if (abs >= 10) return value.toFixed(1);
+  if (abs >= 1) return value.toFixed(2);
+  return value.toFixed(3);
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
+const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) {
+      c = (c & 1) ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function encodePng(buffer: PixelBuffer): Buffer {
+  const { width, height, data } = buffer;
+  const stride = width * 4;
+  const raw = Buffer.alloc((stride + 1) * height);
+  for (let y = 0; y < height; y++) {
+    raw[y * (stride + 1)] = 0; // filter byte
+    Buffer.from(data.subarray(y * stride, y * stride + stride)).copy(
+      raw,
+      y * (stride + 1) + 1,
+    );
+  }
+
+  const compressed = zlib.deflateSync(raw, { level: 9 });
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8; // bit depth
+  header[9] = 6; // RGBA
+  header[10] = 0;
+  header[11] = 0;
+  header[12] = 0;
+
+  return Buffer.concat([
+    PNG_SIGNATURE,
+    createChunk('IHDR', header),
+    createChunk('IDAT', compressed),
+    createChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+function createChunk(type: string, data: Buffer) {
+  const chunkType = Buffer.from(type, 'ascii');
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length, 0);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([chunkType, data])), 0);
+  return Buffer.concat([length, chunkType, data, crc]);
+}
+
+function crc32(buffer: Buffer) {
+  let crc = 0xffffffff;
+  for (let i = 0; i < buffer.length; i++) {
+    crc = CRC_TABLE[(crc ^ buffer[i]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
 const sqlHasAggregate = (sql?: string) =>
   !!sql && /\b(AVG|SUM|COUNT|MEDIAN|MIN|MAX)\b/i.test(sql);
 
@@ -196,7 +1036,7 @@ ${codebook}
 const toPlain = <T>(obj: T): T => JSON.parse(JSON.stringify(obj));
 
 // 1) Whitelist-Schema für Styling-Operationen
-export const StyleEdit = z.discriminatedUnion('op', [
+const StyleEdit = z.discriminatedUnion('op', [
   z.object({ op: z.literal('setTitle'), text: z.string() }),
   z.object({ op: z.literal('setSubtitle'), text: z.string() }),
   z.object({ op: z.literal('setSize'), width: z.number().int().positive(), height: z.number().int().positive() }),
@@ -216,11 +1056,11 @@ export const StyleEdit = z.discriminatedUnion('op', [
   z.object({ op: z.literal('showValueLabels'), on: z.boolean() }),
   z.object({ op: z.literal('sortBy'), field: z.string(), dir: z.enum(['asc','desc']) }),
 ]);
-export const StyleEdits = z.array(StyleEdit).min(1);
-export type StyleEdits = z.infer<typeof StyleEdits>;
+const StyleEdits = z.array(StyleEdit).min(1);
+type StyleEdits = z.infer<typeof StyleEdits>;
 
 // 2) Deterministischer Patch-Applier
-export async function applyStyleEdits(spec: any, edits: StyleEdits) {
+async function applyStyleEdits(spec: any, edits: StyleEdits) {
   const ensure = (obj: any, path: string[], seed: any = {}) => {
     let cur = obj;
     for (let i = 0; i < path.length; i++) {
@@ -387,7 +1227,7 @@ Nutzerwunsch:
 `;
 
 // 4) styleTool-Definition (Export)
-export const styleTool = ai.defineTool(
+const styleToolInternal = ai.defineTool(
   {
     name: 'styleTool',
     description: 'Nimmt reine Styling-Änderungen an einer bestehenden Vega-Lite-Spec vor.',
@@ -417,9 +1257,15 @@ export const styleTool = ai.defineTool(
 
       // 3) Validieren (Vega-Lite → Vega)
       try {
-        const vega = await import('vega');
-        const vegaLite = await import('vega-lite');
-        vega.parse(vegaLite.compile(updated).spec);
+        const [vegaModule, vegaLiteModule] = await Promise.all([
+          tryImport('vega'),
+          tryImport('vega-lite'),
+        ]);
+        if (vegaModule && vegaLiteModule) {
+          const vega = vegaModule.default ?? vegaModule;
+          const vegaLite = vegaLiteModule.default ?? vegaLiteModule;
+          vega.parse(vegaLite.compile(updated).spec);
+        }
       } catch (e: any) {
         return { error: `Ungültige Spec nach Styling: ${e?.message ?? String(e)}` };
       }
@@ -433,15 +1279,22 @@ export const styleTool = ai.defineTool(
   }
 );
 
+type StyleToolInput = Parameters<typeof styleToolInternal>[0];
+type StyleToolOutput = Awaited<ReturnType<typeof styleToolInternal>>;
+
+export async function styleTool(input: StyleToolInput): Promise<StyleToolOutput> {
+  return styleToolInternal(input);
+}
+
 /** ------------------------------
  *  CHART-TOOL (bestehend)
  *  ------------------------------ */
-export const chartTool = ai.defineTool(
+const chartToolInternal = ai.defineTool(
   {
     name: 'chartTool',
     description: 'Erzeugt Diagramme (PNG, Vega-Lite Spec) basierend auf einer NL-Frage zu ESS-Daten.',
-    inputSchema: ChartToolInput,
-    outputSchema: ChartToolOutput,
+    inputSchema: ChartToolInputSchema,
+    outputSchema: ChartToolOutputSchema,
   },
   async (input): Promise<ChartToolOutput> => {
     try {
@@ -796,3 +1649,7 @@ export const chartTool = ai.defineTool(
     }
   }
 );
+
+export async function chartTool(input: ChartToolInput): Promise<ChartToolOutput> {
+  return chartToolInternal(input);
+}

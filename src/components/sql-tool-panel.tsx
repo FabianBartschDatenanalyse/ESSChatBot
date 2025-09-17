@@ -12,7 +12,7 @@ import { Button } from '@/src/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/src/components/ui/card";
 import { Loader2, Play } from 'lucide-react';
 import { DataTable } from './data-table';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/src/hooks/use-toast';
 
 const formSchema = z.object({
   query: z.string().min(1, 'Query cannot be empty.'),
