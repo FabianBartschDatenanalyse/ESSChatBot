@@ -9,8 +9,8 @@ import {
   Avatar,
   AvatarFallback,
   AvatarImage,
-} from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
+} from "@/src/components/ui/avatar"
+import { Button } from "@/src/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,8 +19,8 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { useToast } from "@/hooks/use-toast";
+} from "@/src/components/ui/dropdown-menu"
+import { useToast } from "@/src/hooks/use-toast";
 import { LogOut, User as UserIcon } from "lucide-react";
 
 interface UserNavProps {
@@ -33,6 +33,15 @@ export function UserNav({ user }: UserNavProps) {
 
   const handleLogout = async () => {
     try {
+      if (!auth) {
+        toast({
+          variant: "destructive",
+          title: "Logout Failed",
+          description: "Firebase ist nicht konfiguriert.",
+        });
+        return;
+      }
+
       await signOut(auth);
       toast({
         title: "Logged Out",
