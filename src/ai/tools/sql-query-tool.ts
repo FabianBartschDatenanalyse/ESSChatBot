@@ -14,14 +14,55 @@ import { z, Message } from 'genkit';
 import { suggestSqlQuery, type SuggestSqlQueryOutput } from '@/src/ai/flows/suggest-sql-query';
 import { searchCodebook } from '@/src/lib/vector-search';
 
+/* ----------------------- Helpers: Plain JSON Sanitizing ----------------------- */
+
+function toPlain(value: any): any {
+  if (value == null) return value;
+  const t = typeof value;
+
+  if (t === 'bigint') return value.toString();               // BigInt → string
+  if (t === 'number' || t === 'string' || t === 'boolean') return value;
+
+  if (value instanceof Date) return value.toISOString();     // Date → ISO
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer?.(value)) {
+    return value.toString('base64');                         // Buffer → base64
+  }
+  if (value instanceof Set) return Array.from(value, (v) => toPlain(v)); // Set → Array
+  if (value instanceof Map) {
+    return Object.fromEntries(Array.from(value.entries(), ([k, v]) => [String(k), toPlain(v)]));
+  }
+  if (Array.isArray(value)) return value.map((v) => toPlain(v));
+
+  // Plain object?
+  if (t === 'object') {
+    const ctor = value.constructor;
+    if (!ctor || ctor === Object) {
+      return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, toPlain(v)]));
+    }
+    // Fallback for class instances: best-effort plainification
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, toPlain(v)]));
+  }
+
+  return value;
+}
+
+/** Final safety net to ensure the object is JSON-serializable. */
+function safeReturn<T>(obj: T): T {
+  // throws if non-serializable (e.g., circular refs); keeps us honest during dev
+  try { structuredClone(obj); } catch {}
+  return JSON.parse(JSON.stringify(obj)) as T;
+}
+
+/* ----------------------------- Zod Schemas ----------------------------------- */
+
 const MessageSchema = z.object({
   role: z.enum(['user', 'assistant', 'tool']),
   content: z.string(),
 });
 
 const toolInputSchema = z.object({
-    nlQuestion: z.string().describe('A natural language question that can be answered with a SQL query.'),
-    history: z.array(MessageSchema).optional().describe("The conversation history."),
+  nlQuestion: z.string().describe('A natural language question that can be answered with a SQL query.'),
+  history: z.array(MessageSchema).optional().describe('The conversation history.'),
 });
 
 const toolOutputSchema = z.object({
@@ -29,137 +70,122 @@ const toolOutputSchema = z.object({
   sqlQuery: z.string().default(''),
   injectedSql: z.string().default(''),
   retrievedContext: z.string().default(''),
-  data: z.any().optional(),
-  error: z.string().optional(),
+  data: z.any().optional(),     // will be plainified before returning
+  error: z.string().optional(), // always a string
 });
+
+/* ------------------------------ Tool Impl ------------------------------------ */
 
 export const executeQueryTool = ai.defineTool(
   {
     name: 'executeQueryTool',
-    description: 'Use this tool to query the database to answer user questions about the data. Takes a natural language question and optional conversation history as input.',
+    description:
+      'Use this tool to query the database to answer user questions about the data. Takes a natural language question and optional conversation history as input.',
     inputSchema: toolInputSchema,
     outputSchema: toolOutputSchema,
   },
   async (input) => {
     let sqlQuery: string = '';
-    // Persist generated SQL across all return paths so UI/LLM can always display it.
     let injectedSql: string = '';
     let retrievedContext: string = '';
-    console.log('[executeQueryTool] Received input:', JSON.stringify(input, null, 2));
-    
+
     try {
       // Step 1: Retrieve relevant context from the vector database.
       const searchResults = await searchCodebook(input.nlQuestion, 7);
       retrievedContext = searchResults
-          .map((result, idx) => {
-            console.log(`[executeQueryTool] Vector match #${idx+1} (sim=${(result as any).similarity ?? 'n/a'}):`, (result as any).content?.slice(0, 200));
-            return `- ${result.content}`;
-          })
-          .join('\n');
-        
-      console.log(`[executeQueryTool] Retrieved context from vector DB (length=${retrievedContext.length}).`);
+        .map((result) => `- ${result.content}`)
+        .join('\n');
 
-      // Heuristic: If the question mentions "vertraut" (German for familiarity) and the retrieved context
-      // does not clearly include a familiarity variable, bias the LLM to use "trstprl" as a proxy.
-      const q = input.nlQuestion.toLowerCase();
-      const looksLikeFamiliarity =
-        q.includes('vertraut') || q.includes('vertrautheit') || q.includes('familiar');
-      const contextLower = retrievedContext.toLowerCase();
-      const contextHasExplicitFamiliarity =
-        contextLower.includes('stfknw') || contextLower.includes('familiar');
-      const hint =
-        looksLikeFamiliarity && !contextHasExplicitFamiliarity
-          ? '\n\nNote: If no explicit "familiarity" variable is present in the codebook context, use "trstprl" (trust in parliament) as the proxy measure and aggregate by "cntry".'
-          : '';
-
-      const sqlQuestion = `${input.nlQuestion}`;
-      console.log('[executeQueryTool] NL question after heuristic hint:', sqlQuestion);
-
-      // Step 2: Generate SQL using the provided question (+ optional hint) and retrieved context
+      // Step 2: Generate SQL from question + context
       let suggestion: SuggestSqlQueryOutput;
       try {
-        console.log('[executeQueryTool] Calling suggestSqlQuery...');
         suggestion = await suggestSqlQuery({
-          question: sqlQuestion,
+          question: input.nlQuestion,
           codebook: retrievedContext,
           history: input.history,
         });
-        console.log('[executeQueryTool] suggestSqlQuery output:', suggestion);
         sqlQuery = suggestion.sqlQuery;
         injectedSql = sqlQuery || injectedSql;
       } catch (suggestionError: any) {
-        const errorMsg = `❌ Failed to generate SQL query. Error: ${suggestionError.message || 'Unknown error'}`;
-        console.error('[executeQueryTool]', errorMsg, suggestionError);
-        // Return required fields with deterministic SQL carrier
-        return { error: errorMsg, sqlQuery: sqlQuery || '', injectedSql: injectedSql || '', retrievedContext: retrievedContext || '' };
+        const out = {
+          error: `❌ Failed to generate SQL query. Error: ${suggestionError?.message || 'Unknown error'}`,
+          sqlQuery: sqlQuery || '',
+          injectedSql: injectedSql || '',
+          retrievedContext: retrievedContext || '',
+        };
+        return safeReturn(out);
       }
 
       if (!sqlQuery || sqlQuery.trim() === '') {
-        const placeholderColumns = (() => {
-          // Try to heuristically extract candidate column names from retrievedContext:
-          // Very simple heuristic: grab words that look like variable tokens (letters, digits, underscore) commonly used as column names.
-          const matches = (retrievedContext.match(/\b[a-zA-Z_][a-zA-Z0-9_]{1,30}\b/g) || [])
-            // Filter out obvious non-column words and duplicates
-            .filter(w => !['the','and','or','for','is','are','of','to','in','by','with','as','on','at','be','an','a','this','that','these','those','from','not','no','yes','it','its','if','then','else','when','where','which','was','were','has','have','had','can','could','should','would','may','might','will','shall','data','variable','codebook','column','columns','table','ess1','ESS1'].includes(w.toLowerCase()))
-            .slice(0, 6);
-          // Ensure essential likely columns show up if present in context
-          const prioritized = ['cntry','agea','gndr'].filter(c => retrievedContext.toLowerCase().includes(c));
-          const combined = Array.from(new Set([...prioritized, ...matches]));
-          return combined.length > 0 ? combined : ['cntry'];
-        })();
+        // Best-effort template if the LLM did not return SQL
+        const matches = (retrievedContext.match(/\b[a-zA-Z_][a-zA-Z0-9_]{1,30}\b/g) || [])
+          .filter((w) =>
+            ![
+              'the','and','or','for','is','are','of','to','in','by','with','as','on','at',
+              'be','an','a','this','that','these','those','from','not','no','yes','it','its',
+              'if','then','else','when','where','which','was','were','has','have','had','can',
+              'could','should','would','may','might','will','shall','data','variable','codebook',
+              'column','columns','table','ess1','ESS1',
+            ].includes(w.toLowerCase())
+          )
+          .slice(0, 6);
 
-        const placeholderSelectList = placeholderColumns.map(c => `CAST(${c} AS NUMERIC) AS ${c}`).join(', ');
+        const prioritized = ['cntry', 'agea', 'gndr'].filter((c) =>
+          retrievedContext.toLowerCase().includes(c)
+        );
+        const placeholderColumns = Array.from(new Set([...prioritized, ...matches]));
+        const cols = placeholderColumns.length > 0 ? placeholderColumns : ['cntry'];
+
+        const placeholderSelect = cols.map((c) => `CAST(${c} AS NUMERIC) AS ${c}`).join(', ');
         const missingCodes = `'77','88','99'`;
-        const bestEffort = `SELECT ${placeholderSelectList}
-FROM "ESS1"
-WHERE ${placeholderColumns[0]} NOT IN (${missingCodes})
--- TODO: Adjust selected columns based on the codebook context above.
--- TODO: Add proper WHERE filters to exclude missing/invalid values for each aggregated column.
--- TODO: Add GROUP BY (e.g., cntry) or aggregations (e.g., AVG(CAST(trstprl AS NUMERIC))) as needed to answer: ${JSON.stringify(input.nlQuestion)}
--- Context excerpt used to infer columns:
--- ${retrievedContext.slice(0, 400).replace(/\n/g, ' ')}`;
 
-        console.warn('[executeQueryTool] AI returned empty SQL; providing best-effort template instead.');
-        sqlQuery = bestEffort;
+        sqlQuery = `SELECT ${placeholderSelect}
+FROM "ESS1"
+WHERE ${cols[0]} NOT IN (${missingCodes})
+-- TODO: Adjust columns/filters/aggregations to answer: ${JSON.stringify(input.nlQuestion)}
+-- Context excerpt:
+-- ${retrievedContext.slice(0, 400).replace(/\n/g, ' ')}`;
         injectedSql = sqlQuery;
       }
-      
-      console.log(`[executeQueryTool] Generated SQL: ${sqlQuery}`);
-      injectedSql = sqlQuery || injectedSql;
-
-      console.log('[executeQueryTool] FINAL SQL QUERY:', `\n${sqlQuery}`);
 
       // Step 3: Execute SQL
-      console.log('[executeQueryTool] Executing SQL via data-service.executeQuery...');
       const result = await executeQuery(sqlQuery);
-      console.log('[executeQueryTool] executeQuery result meta:', { hasData: !!result.data, hasError: !!result.error, rows: result.data?.length });
 
       if (result.error) {
-        console.error('[executeQueryTool] Query execution failed:', result.error, { sql: sqlQuery });
-        return { error: `❌ Query execution failed: ${result.error}`, sqlQuery: sqlQuery || '', injectedSql: injectedSql || '', retrievedContext: retrievedContext || '' };
+        const out = {
+          error: `❌ Query execution failed: ${String(result.error)}`,
+          sqlQuery: sqlQuery || '',
+          injectedSql: injectedSql || '',
+          retrievedContext: retrievedContext || '',
+        };
+        return safeReturn(out);
       }
 
       if (result.data) {
-         if (result.data.length > 0) {
-            console.log(`[executeQueryTool] Query returned ${result.data.length} rows. Example row:`, result.data[0]);
-            // Always include sqlQuery/injectedSql and retrievedContext so the UI/LLM can display them.
-            return { data: result.data, sqlQuery: sqlQuery || '', injectedSql: injectedSql || '', retrievedContext: retrievedContext || '' };
-         } else {
-            console.warn('[executeQueryTool] SQL executed successfully, but no data was returned.', { sql: sqlQuery });
-            return { data: [], sqlQuery: sqlQuery || '', injectedSql: injectedSql || '', retrievedContext: retrievedContext || '' };
-         }
+        const plainData = toPlain(result.data);
+        const out = {
+          data: plainData,
+          sqlQuery: sqlQuery || '',
+          injectedSql: injectedSql || '',
+          retrievedContext: retrievedContext || '',
+        };
+        return safeReturn(out);
       }
-      
-      console.error('[executeQueryTool] No data or error returned from executeQuery. This indicates an unexpected response.');
-      return { error: 'No data or error returned from executeQuery', sqlQuery: sqlQuery || '', injectedSql: injectedSql || '', retrievedContext: retrievedContext || '' };
 
+      // Unexpected shape
+      return safeReturn({
+        error: 'No data or error returned from executeQuery',
+        sqlQuery: sqlQuery || '',
+        injectedSql: injectedSql || '',
+        retrievedContext: retrievedContext || '',
+      });
     } catch (e: any) {
-      const errorMsg = `💥 Unexpected error in executeQueryTool: ${e.message || 'Unknown error'}`;
-      console.error('[executeQueryTool]', errorMsg, e);
-      // Ensure fields are present in error path too.
-      return { error: errorMsg, sqlQuery: sqlQuery || '', injectedSql: injectedSql || '', retrievedContext: retrievedContext || '' };
+      return safeReturn({
+        error: `💥 Unexpected error in executeQueryTool: ${e?.message || 'Unknown error'}`,
+        sqlQuery: sqlQuery || '',
+        injectedSql: injectedSql || '',
+        retrievedContext: retrievedContext || '',
+      });
     }
   }
 );
-
-

@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { History, PlusCircle } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import type { Conversation, Message } from '@/lib/types';
+import type { Conversation, Message } from '@/src/lib/types';
 
 import { SidebarProvider, Sidebar, SidebarInset, SidebarTrigger, SidebarContent, SidebarHeader, SidebarGroup, SidebarGroupLabel, SidebarSeparator } from '@/src/components/ui/sidebar';
 import { Card, CardContent } from "@/src/components/ui/card";
