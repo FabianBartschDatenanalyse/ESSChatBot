@@ -1,6 +1,6 @@
 'use server';
 
-import { ai } from '@/src/ai/genkit';
+import { ai, isAiConfigured, missingAiMessage } from '@/src/ai/genkit';
 import { z } from 'zod';
 import { searchCodebook } from '@/src/lib/vector-search';
 import { executeQuery } from '@/src/lib/data-service';
@@ -446,24 +446,7 @@ function renderBarChartFallback(
       if (tick !== 0) {
         drawText(buffer, originX - 12, y, formatTick(tick), TEXT_COLOR, 1, 'right', 'middle');
       } else {
-        drawText(buffer, originX - 12, y + 4, '0', TEXT_COLOR, 1, 'right', 'top');
-      }
-    } else {
-      const x = originX + ratio * innerWidth;
-      drawLine(buffer, x, margin.top, x, margin.top + innerHeight, GRID_COLOR, tick === 0 ? 2 : 1);
-      drawText(buffer, x, originY + 16, formatTick(tick), TEXT_COLOR, 1, 'center', 'top');
-    }
-  });
-
-  drawLine(buffer, originX, margin.top, originX, originY, AXIS_COLOR, 2);
-  drawLine(buffer, originX, originY, originX + innerWidth, originY, AXIS_COLOR, 2);
-
-  if (orientation === 'horizontal') {
-    drawLine(buffer, originX, margin.top, originX + innerWidth, margin.top, AXIS_COLOR, 2);
-  }
-
-  const bandCount = entries.length;
-  const bandSpan =
+@@ -447,75 +467,75 @@ function renderBarChartFallback(
     (orientation === 'vertical' ? innerWidth : innerHeight) / Math.max(bandCount, 1);
   const barSize = Math.max(4, Math.min(bandSpan * 0.72, orientation === 'vertical' ? 90 : 48));
   const gap = Math.max(2, bandSpan - barSize);
@@ -1260,6 +1243,9 @@ const styleToolInternal = ai.defineTool(
     }),
   },
   async (input) => {
+    if (!isAiConfigured) {
+      return { error: missingAiMessage };
+    }
     try {
       // 1) NL → Edits (Whitelist)
       const plan = await ai.generate({
@@ -1317,6 +1303,9 @@ const chartToolInternal = ai.defineTool(
     outputSchema: ChartToolOutputSchema,
   },
   async (input): Promise<ChartToolOutput> => {
+    if (!isAiConfigured) {
+      return { error: missingAiMessage };
+    }
     try {
       // 1) Kontext holen
       const codebookHits = await searchCodebook(input.nlQuestion, 7);
