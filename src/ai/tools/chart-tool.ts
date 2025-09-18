@@ -103,7 +103,7 @@ interface AxisEncoding {
   field?: string;
   type?: string;
   title?: string;
-  sort?: string | { field?: string; order?: 'ascending' | 'descending' };
+  sort?: string | string[] | { field?: string; order?: 'ascending' | 'descending' };
 }
 
 interface EncodingConfig {
@@ -547,9 +547,6 @@ function renderBarChartFallback(
   }
 
   const entries = buildBarChartEntries(dataValues, encoding, orientation);
-  // … der restliche Funktionskörper bleibt unverändert …
-}
-
   if (!entries.length) {
     throw new Error('Keine numerischen Daten für das Rendering gefunden.');
   }
@@ -576,11 +573,19 @@ function renderBarChartFallback(
     if (orientation === 'vertical') {
       const y = originY - ratio * innerHeight;
       drawLine(buffer, originX, y, originX + innerWidth, y, GRID_COLOR, tick === 0 ? 2 : 1);
-      if (tick !== 0) {
-        drawText(buffer, originX - 12, y, formatTick(tick), TEXT_COLOR, 1, 'right', 'middle');
-      } else {
-@@ -447,75 +467,75 @@ function renderBarChartFallback(
-    (orientation === 'vertical' ? innerWidth : innerHeight) / Math.max(bandCount, 1);
+      drawText(buffer, originX - 12, y, formatTick(tick), TEXT_COLOR, 1, 'right', 'middle');
+    } else {
+      const x = originX + ratio * innerWidth;
+      drawLine(buffer, x, margin.top, x, originY, GRID_COLOR, tick === 0 ? 2 : 1);
+      drawText(buffer, x, originY + 18, formatTick(tick), TEXT_COLOR, 1, 'center', 'top');
+    }
+  });
+
+  drawLine(buffer, originX, margin.top, originX, originY, AXIS_COLOR, 2);
+  drawLine(buffer, originX, originY, originX + innerWidth, originY, AXIS_COLOR, 2);
+
+  const bandCount = entries.length;
+  const bandSpan = (orientation === 'vertical' ? innerWidth : innerHeight) / Math.max(bandCount, 1);
   const barSize = Math.max(4, Math.min(bandSpan * 0.72, orientation === 'vertical' ? 90 : 48));
   const gap = Math.max(2, bandSpan - barSize);
 
