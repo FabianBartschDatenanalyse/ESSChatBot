@@ -108,6 +108,7 @@ interface PixelBuffer {
   height: number;
 }
 
+
 const BACKGROUND_COLOR: RGBA = [255, 255, 255, 255];
 const AXIS_COLOR: RGBA = [71, 85, 105, 255];
 const GRID_COLOR: RGBA = [226, 232, 240, 255];

@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { genkit } from 'genkit';
+import { createRequire } from 'module';
 
 const moduleSpecifier = '@genkit-ai/compat-oai/openai';
 
@@ -32,6 +33,7 @@ if (requireForCompat) {
     const mod = requireForCompat(moduleSpecifier);
     openAiPluginFactory = mod?.default ?? mod ?? null;
   } catch (error) {
+
     openAiLoadError = error;
     if (isModuleNotFoundError(error)) {
       openAiPluginFactory = null;
