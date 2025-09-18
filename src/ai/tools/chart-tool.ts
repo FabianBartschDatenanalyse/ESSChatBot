@@ -336,6 +336,60 @@ function renderWithFallback(spec: any): string {
   return `data:image/png;base64,${png.toString('base64')}`;
 }
 
+export type BarChartEntry = {
+  category: string;
+  label: string;
+  value: number;
+};
+
+export function buildBarChartEntries(
+  dataValues: any[],
+  encoding: EncodingConfig,
+  orientation: 'vertical' | 'horizontal',
+): BarChartEntry[] {
+  const xEnc = encoding.x ?? {};
+  const yEnc = encoding.y ?? {};
+
+  const valueField = orientation === 'vertical' ? yEnc.field ?? 'value' : xEnc.field ?? 'value';
+  const categoryField =
+    orientation === 'vertical' ? xEnc.field ?? 'category' : yEnc.field ?? 'category';
+
+  const entries = dataValues
+    .map((row: any) => {
+      const rawCategory = categoryField != null ? row?.[categoryField] : undefined;
+      const rawValue =
+        valueField != null ? row?.[valueField] : row?.value ?? row?.count ?? row?.total;
+      const numericValue =
+        typeof rawValue === 'number'
+          ? rawValue
+          : typeof rawValue === 'string' && looksNumeric(rawValue)
+          ? parseFloat(rawValue)
+          : NaN;
+      const category =
+        rawCategory == null
+          ? ''
+          : typeof rawCategory === 'string'
+          ? rawCategory
+          : String(rawCategory);
+      const label = sanitizeLabel(category) || 'N/A';
+      return {
+        category,
+        label,
+        value: numericValue,
+      };
+    })
+    .filter((entry) => Number.isFinite(entry.value));
+
+  const catEnc = orientation === 'vertical' ? xEnc : yEnc;
+  const sortDirective = typeof catEnc.sort === 'string' ? catEnc.sort : undefined;
+  if (sortDirective) {
+    const descending = sortDirective.startsWith('-');
+    entries.sort((a, b) => (descending ? b.value - a.value : a.value - b.value));
+  }
+
+  return entries;
+}
+
 function renderBarChartFallback(
   buffer: PixelBuffer,
   dataValues: any[],
@@ -361,44 +415,10 @@ function renderBarChartFallback(
     orientation = 'horizontal';
   }
 
-  const valueField = orientation === 'vertical' ? yEnc.field ?? 'value' : xEnc.field ?? 'value';
-  const categoryField =
-    orientation === 'vertical' ? xEnc.field ?? 'category' : yEnc.field ?? 'category';
-
-  const entries = dataValues
-    .map((row: any) => {
-      const rawCategory = categoryField != null ? row?.[categoryField] : undefined;
-      const rawValue =
-        valueField != null ? row?.[valueField] : row?.value ?? row?.count ?? row?.total;
-      const numericValue =
-        typeof rawValue === 'number'
-          ? rawValue
-          : typeof rawValue === 'string' && looksNumeric(rawValue)
-          ? parseFloat(rawValue)
-          : NaN;
-      return {
-        category:
-          rawCategory == null
-            ? ''
-            : typeof rawCategory === 'string'
-            ? rawCategory
-            : String(rawCategory),
-        value: numericValue,
-      };
-    })
-    .filter((entry) => Number.isFinite(entry.value));
+  const entries = buildBarChartEntries(dataValues, encoding, orientation);
 
   if (!entries.length) {
     throw new Error('Keine numerischen Daten für das Rendering gefunden.');
-  }
-
-  const categoryLabels = entries.map((entry) => sanitizeLabel(entry.category) || 'N/A');
-
-  const catEnc = orientation === 'vertical' ? xEnc : yEnc;
-  const sortDirective = typeof catEnc.sort === 'string' ? catEnc.sort : undefined;
-  if (sortDirective) {
-    const descending = sortDirective.startsWith('-');
-    entries.sort((a, b) => (descending ? b.value - a.value : a.value - b.value));
   }
 
   const innerWidth = Math.max(20, width - margin.left - margin.right);
@@ -426,24 +446,7 @@ function renderBarChartFallback(
       if (tick !== 0) {
         drawText(buffer, originX - 12, y, formatTick(tick), TEXT_COLOR, 1, 'right', 'middle');
       } else {
-        drawText(buffer, originX - 12, y + 4, '0', TEXT_COLOR, 1, 'right', 'top');
-      }
-    } else {
-      const x = originX + ratio * innerWidth;
-      drawLine(buffer, x, margin.top, x, margin.top + innerHeight, GRID_COLOR, tick === 0 ? 2 : 1);
-      drawText(buffer, x, originY + 16, formatTick(tick), TEXT_COLOR, 1, 'center', 'top');
-    }
-  });
-
-  drawLine(buffer, originX, margin.top, originX, originY, AXIS_COLOR, 2);
-  drawLine(buffer, originX, originY, originX + innerWidth, originY, AXIS_COLOR, 2);
-
-  if (orientation === 'horizontal') {
-    drawLine(buffer, originX, margin.top, originX + innerWidth, margin.top, AXIS_COLOR, 2);
-  }
-
-  const bandCount = entries.length;
-  const bandSpan =
+@@ -447,75 +467,75 @@ function renderBarChartFallback(
     (orientation === 'vertical' ? innerWidth : innerHeight) / Math.max(bandCount, 1);
   const barSize = Math.max(4, Math.min(bandSpan * 0.72, orientation === 'vertical' ? 90 : 48));
   const gap = Math.max(2, bandSpan - barSize);
@@ -469,7 +472,7 @@ function renderBarChartFallback(
         buffer,
         x0 + barSize / 2,
         originY + 18,
-        shortenLabel(categoryLabels[index]),
+        shortenLabel(entry.label),
         TEXT_COLOR,
         1,
         'center',
@@ -493,7 +496,7 @@ function renderBarChartFallback(
         buffer,
         originX - 12,
         y0 + barSize / 2,
-        shortenLabel(categoryLabels[index]),
+        shortenLabel(entry.label),
         TEXT_COLOR,
         1,
         'right',
