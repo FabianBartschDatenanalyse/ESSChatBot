@@ -1,24 +1,41 @@
+import { createRequire } from 'node:module';
 import { genkit } from 'genkit';
 
 const moduleSpecifier = '@genkit-ai/compat-oai/openai';
 
-const dynamicRequire: NodeJS.Require | undefined = (() => {
-  try {
-    return Function("return typeof require !== 'undefined' ? require : undefined;")();
-  } catch {
-    return undefined;
-  }
-})();
+const isModuleNotFoundError = (error: unknown) => {
+  if (!error) return false;
+  const message = typeof error === 'string' ? error : (error as Error)?.message ?? '';
+  const code = (error as any)?.code;
+  return (
+    code === 'ERR_MODULE_NOT_FOUND' ||
+    code === 'MODULE_NOT_FOUND' ||
+    message.includes(`Cannot find module '${moduleSpecifier}'`) ||
+    message.includes(`Cannot find package '${moduleSpecifier}'`)
+  );
+};
 
 let openAiPluginFactory: ((options: { apiKey: string }) => any) | null = null;
 let openAiLoadError: unknown;
 
-if (dynamicRequire) {
+const requireForCompat = (() => {
   try {
-    const mod = dynamicRequire(moduleSpecifier);
+    return createRequire(import.meta.url);
+  } catch (error) {
+    openAiLoadError = error;
+    return null;
+  }
+})();
+
+if (requireForCompat) {
+  try {
+    const mod = requireForCompat(moduleSpecifier);
     openAiPluginFactory = mod?.default ?? mod ?? null;
   } catch (error) {
     openAiLoadError = error;
+    if (isModuleNotFoundError(error)) {
+      openAiPluginFactory = null;
+    }
   }
 }
 
