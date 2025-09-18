@@ -4,7 +4,7 @@
  * @fileOverview A Genkit tool for performing statistical analyses using a Node.js library.
  */
 
-import { ai } from '@/src/ai/genkit';
+import { ai, isAiConfigured, missingAiMessage } from '@/src/ai/genkit';
 import { z } from 'zod';
 import { executeQuery } from '@/src/lib/data-service';
 import MultivariateLinearRegression from 'ml-regression-multivariate-linear';
@@ -35,6 +35,10 @@ export const statisticsTool = ai.defineTool(
     console.log('[statisticsTool] Received input:', JSON.stringify(input, null, 2));
     let sqlQuery = '';
     const logs: string[] = [`[statisticsTool] Starting ${input.analysisType} analysis.`];
+
+    if (!isAiConfigured) {
+      return { error: missingAiMessage };
+    }
 
     try {
       // 1. Construct the SQL query to fetch raw data

@@ -4,7 +4,6 @@
 import { config } from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import * as fs from 'fs/promises';
-import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { OpenAIEmbeddings } from '@langchain/openai';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -28,6 +27,47 @@ const embeddings = new OpenAIEmbeddings({
   model: 'text-embedding-3-small',
 });
 
+type DocumentChunk = {
+  pageContent: string;
+  metadata: { chunk: number; start: number };
+};
+
+function splitTextIntoChunks(
+  text: string,
+  { chunkSize = 1000, chunkOverlap = 100 }: { chunkSize?: number; chunkOverlap?: number } = {}
+): DocumentChunk[] {
+  if (chunkSize <= 0) {
+    throw new Error('chunkSize must be greater than 0');
+  }
+
+  const step = chunkSize - chunkOverlap;
+
+  if (step <= 0) {
+    throw new Error('chunkOverlap must be smaller than chunkSize');
+  }
+
+  const chunks: DocumentChunk[] = [];
+  let start = 0;
+  let index = 0;
+
+  while (start < text.length) {
+    const end = Math.min(text.length, start + chunkSize);
+    const pageContent = text.slice(start, end).trim();
+
+    if (pageContent.length > 0) {
+      chunks.push({
+        pageContent,
+        metadata: { chunk: index, start },
+      });
+    }
+
+    start += step;
+    index += 1;
+  }
+
+  return chunks;
+}
+
 async function main() {
   console.log('Starting codebook embedding process...');
 
@@ -42,11 +82,7 @@ async function main() {
 
     // 2. Split the text into chunks
     console.log('Splitting text into chunks...');
-    const splitter = new RecursiveCharacterTextSplitter({
-      chunkSize: 1000,
-      chunkOverlap: 100,
-    });
-    const chunks = await splitter.createDocuments([content]);
+    const chunks = splitTextIntoChunks(content, { chunkSize: 1000, chunkOverlap: 100 });
     console.log(`Created ${chunks.length} document chunks.`);
 
     // 3. Clear existing documents in the table

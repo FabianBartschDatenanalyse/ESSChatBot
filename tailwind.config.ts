@@ -10,12 +10,11 @@ const config: Config = {
   ],
   theme: {
     extend: {
-      // Wichtig: auf --font-pt-sans und --font-space-grotesk mappen
       fontFamily: {
-        body: ['var(--font-pt-sans)', 'system-ui', 'sans-serif'],
-        heading: ['var(--font-space-grotesk)', 'system-ui', 'sans-serif'],
+        body: ['var(--font-body)', 'system-ui', 'sans-serif'],
+        heading: ['var(--font-heading)', 'system-ui', 'sans-serif'],
         // optionaler Alias, falls du schon "font-headline" verwendest:
-        headline: ['var(--font-space-grotesk)', 'system-ui', 'sans-serif'],
+        headline: ['var(--font-heading)', 'system-ui', 'sans-serif'],
         code: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
       colors: {

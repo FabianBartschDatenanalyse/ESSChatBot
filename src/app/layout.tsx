@@ -1,31 +1,33 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { Toaster } from '@/src/components/ui/toaster';
-import { PT_Sans, Space_Grotesk } from 'next/font/google';
+import localFont from 'next/font/local';
 
 export const metadata: Metadata = {
   title: 'ESS Navigator',
   description: 'Navigate the European Social Survey dataset with AI.',
 };
 
-const ptSans = PT_Sans({
-  subsets: ['latin'],
-  weight: ['400', '700'],
-  style: ['normal', 'italic'],
+const bodyFont = localFont({
   display: 'swap',
-  variable: '--font-pt-sans',
+  variable: '--font-body',
+  src: [
+    { path: '../../public/fonts/DejaVuSans.ttf', weight: '400', style: 'normal' },
+    { path: '../../public/fonts/DejaVuSans-Bold.ttf', weight: '700', style: 'normal' },
+  ],
 });
 
-const spaceGrotesk = Space_Grotesk({
-  subsets: ['latin'],
-  weight: ['300', '400', '500', '600', '700'],
+const headingFont = localFont({
   display: 'swap',
-  variable: '--font-space-grotesk',
+  variable: '--font-heading',
+  src: [
+    { path: '../../public/fonts/DejaVuSans-Bold.ttf', weight: '700', style: 'normal' },
+  ],
 });
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning className={`${ptSans.variable} ${spaceGrotesk.variable}`}>
+    <html lang="en" suppressHydrationWarning className={`${bodyFont.variable} ${headingFont.variable}`}>
       <body className="font-body antialiased">
         {children}
         <Toaster />

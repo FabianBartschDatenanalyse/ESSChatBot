@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 body {
-  font-family: 'PT Sans', sans-serif;
+  font-family: var(--font-body, 'DejaVu Sans', sans-serif);
 }
 
 @layer base {
@@ -87,5 +87,5 @@ body {
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: var(--font-heading, 'DejaVu Sans', sans-serif);
 }

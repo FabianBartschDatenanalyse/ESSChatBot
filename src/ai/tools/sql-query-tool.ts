@@ -8,7 +8,7 @@
  * it to SQL, executes it, and returns the result.
  */
 
-import { ai } from '@/src/ai/genkit';
+import { ai, isAiConfigured, missingAiMessage } from '@/src/ai/genkit';
 import { executeQuery } from '@/src/lib/data-service';
 import { z, Message } from 'genkit';
 import { suggestSqlQuery, type SuggestSqlQueryOutput } from '@/src/ai/flows/suggest-sql-query';
@@ -88,6 +88,15 @@ export const executeQueryTool = ai.defineTool(
     let sqlQuery: string = '';
     let injectedSql: string = '';
     let retrievedContext: string = '';
+
+    if (!isAiConfigured) {
+      return safeReturn({
+        error: missingAiMessage,
+        sqlQuery,
+        injectedSql,
+        retrievedContext,
+      });
+    }
 
     try {
       // Step 1: Retrieve relevant context from the vector database.

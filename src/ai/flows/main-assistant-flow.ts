@@ -12,7 +12,7 @@
  */
 
 import { unstable_noStore as noStore } from 'next/cache';
-import { ai } from '@/src/ai/genkit';
+import { ai, isAiConfigured, missingAiMessage } from '@/src/ai/genkit';
 import { z } from 'zod';
 import { executeQueryTool } from '@/src/ai/tools/sql-query-tool';
 import { searchCodebook } from '@/src/lib/vector-search';
@@ -74,6 +74,12 @@ const mainAssistantFlow = ai.defineFlow(
   async (input) => {
     noStore();
     console.log('[mainAssistantFlow] Received input:', JSON.stringify(input, null, 2));
+
+    if (!isAiConfigured) {
+      return {
+        answer: missingAiMessage,
+      };
+    }
 
     // Step 1: Decide if a tool is needed and reformulate the question if necessary.
     const reformulationPrompt = `You are an expert at processing conversations. Your task is to determine if the user's latest question requires database access and to reformulate it into a self-contained question if it's a follow-up.
