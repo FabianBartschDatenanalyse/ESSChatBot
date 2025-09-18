@@ -336,6 +336,178 @@ function renderWithFallback(spec: any): string {
   return `data:image/png;base64,${png.toString('base64')}`;
 }
 
+export type BarChartEntry = {
+  category: string;
+  label: string;
+  value: number;
+};
+
+type BarSortInstruction =
+  | { kind: 'value' | 'category'; order: 'ascending' | 'descending' }
+  | { kind: 'custom'; orderMap: Map<string, number> };
+
+const normalizeSortKey = (value: unknown) => {
+  if (value == null) return '';
+  const raw = typeof value === 'string' ? value : String(value);
+  const sanitized = sanitizeLabel(raw);
+  return sanitized || raw.trim().toUpperCase();
+};
+
+const resolveBarSortInstruction = (
+  sort: AxisEncoding['sort'],
+  orientation: 'vertical' | 'horizontal',
+  categoryField: string,
+  valueField: string,
+): BarSortInstruction | null => {
+  if (!sort) return null;
+
+  if (Array.isArray(sort)) {
+    const orderMap = new Map<string, number>();
+    sort.forEach((value, index) => {
+      const key = normalizeSortKey(value);
+      if (key && !orderMap.has(key)) {
+        orderMap.set(key, index);
+      }
+    });
+    return orderMap.size ? { kind: 'custom', orderMap } : null;
+  }
+
+  if (typeof sort === 'string') {
+    const trimmed = sort.trim();
+    if (!trimmed) return null;
+    if (trimmed === 'ascending' || trimmed === 'descending') {
+      return { kind: 'category', order: trimmed };
+    }
+
+    const descending = trimmed.startsWith('-');
+    const order: 'ascending' | 'descending' = descending ? 'descending' : 'ascending';
+    const target = descending ? trimmed.slice(1) : trimmed;
+
+    if (target === 'x') {
+      return {
+        kind: orientation === 'vertical' ? 'category' : 'value',
+        order,
+      };
+    }
+    if (target === 'y') {
+      return {
+        kind: orientation === 'vertical' ? 'value' : 'category',
+        order,
+      };
+    }
+    if (target === 'value' || target === valueField) {
+      return { kind: 'value', order };
+    }
+    if (target === 'category' || target === categoryField) {
+      return { kind: 'category', order };
+    }
+
+    return { kind: 'value', order };
+  }
+
+  if (typeof sort === 'object') {
+    const order: 'ascending' | 'descending' = sort.order === 'descending' ? 'descending' : 'ascending';
+    if (sort.field === categoryField || sort.field === 'category') {
+      return { kind: 'category', order };
+    }
+    if (sort.field === valueField || sort.field === 'value') {
+      return { kind: 'value', order };
+    }
+    if (sort.field === 'x') {
+      return {
+        kind: orientation === 'vertical' ? 'category' : 'value',
+        order,
+      };
+    }
+    if (sort.field === 'y') {
+      return {
+        kind: orientation === 'vertical' ? 'value' : 'category',
+        order,
+      };
+    }
+
+    return { kind: 'value', order };
+  }
+
+  return null;
+};
+
+export function buildBarChartEntries(
+  dataValues: any[],
+  encoding: EncodingConfig,
+  orientation: 'vertical' | 'horizontal',
+): BarChartEntry[] {
+  const xEnc = encoding.x ?? {};
+  const yEnc = encoding.y ?? {};
+
+  const valueField = orientation === 'vertical' ? yEnc.field ?? 'value' : xEnc.field ?? 'value';
+  const categoryField =
+    orientation === 'vertical' ? xEnc.field ?? 'category' : yEnc.field ?? 'category';
+
+  const entriesWithIndex = dataValues
+    .map((row: any, originalIndex: number) => {
+      const rawCategory = categoryField != null ? row?.[categoryField] : undefined;
+      const rawValue =
+        valueField != null ? row?.[valueField] : row?.value ?? row?.count ?? row?.total;
+      const numericValue =
+        typeof rawValue === 'number'
+          ? rawValue
+          : typeof rawValue === 'string' && looksNumeric(rawValue)
+          ? parseFloat(rawValue)
+          : NaN;
+      const category =
+        rawCategory == null
+          ? ''
+          : typeof rawCategory === 'string'
+          ? rawCategory
+          : String(rawCategory);
+      const label = sanitizeLabel(category) || 'N/A';
+      return {
+        category,
+        label,
+        value: numericValue,
+        originalIndex,
+      };
+    })
+    .filter((entry) => Number.isFinite(entry.value));
+
+  const entries = entriesWithIndex.slice();
+  const catEnc = orientation === 'vertical' ? xEnc : yEnc;
+  const sortInstruction = resolveBarSortInstruction(catEnc.sort, orientation, categoryField, valueField);
+
+  if (sortInstruction) {
+    if (sortInstruction.kind === 'custom') {
+      entries.sort((a, b) => {
+        const aKey = normalizeSortKey(a.category) || normalizeSortKey(a.label);
+        const bKey = normalizeSortKey(b.category) || normalizeSortKey(b.label);
+        const aIdx = sortInstruction.orderMap.get(aKey);
+        const bIdx = sortInstruction.orderMap.get(bKey);
+        if (aIdx != null && bIdx != null) return aIdx - bIdx;
+        if (aIdx != null) return -1;
+        if (bIdx != null) return 1;
+        return a.originalIndex - b.originalIndex;
+      });
+    } else {
+      const multiplier = sortInstruction.order === 'descending' ? -1 : 1;
+      if (sortInstruction.kind === 'value') {
+        entries.sort((a, b) => {
+          const diff = a.value - b.value;
+          if (diff !== 0) return diff * multiplier;
+          return (a.originalIndex - b.originalIndex) * multiplier;
+        });
+      } else {
+        entries.sort((a, b) => {
+          const compare = a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+          if (compare !== 0) return compare * multiplier;
+          return (a.originalIndex - b.originalIndex) * multiplier;
+        });
+      }
+    }
+  }
+
+  return entries.map(({ originalIndex: _originalIndex, ...rest }) => rest);
+}
+
 function renderBarChartFallback(
   buffer: PixelBuffer,
   dataValues: any[],
@@ -361,44 +533,10 @@ function renderBarChartFallback(
     orientation = 'horizontal';
   }
 
-  const valueField = orientation === 'vertical' ? yEnc.field ?? 'value' : xEnc.field ?? 'value';
-  const categoryField =
-    orientation === 'vertical' ? xEnc.field ?? 'category' : yEnc.field ?? 'category';
-
-  const entries = dataValues
-    .map((row: any) => {
-      const rawCategory = categoryField != null ? row?.[categoryField] : undefined;
-      const rawValue =
-        valueField != null ? row?.[valueField] : row?.value ?? row?.count ?? row?.total;
-      const numericValue =
-        typeof rawValue === 'number'
-          ? rawValue
-          : typeof rawValue === 'string' && looksNumeric(rawValue)
-          ? parseFloat(rawValue)
-          : NaN;
-      return {
-        category:
-          rawCategory == null
-            ? ''
-            : typeof rawCategory === 'string'
-            ? rawCategory
-            : String(rawCategory),
-        value: numericValue,
-      };
-    })
-    .filter((entry) => Number.isFinite(entry.value));
+  const entries = buildBarChartEntries(dataValues, encoding, orientation);
 
   if (!entries.length) {
     throw new Error('Keine numerischen Daten für das Rendering gefunden.');
-  }
-
-  const categoryLabels = entries.map((entry) => sanitizeLabel(entry.category) || 'N/A');
-
-  const catEnc = orientation === 'vertical' ? xEnc : yEnc;
-  const sortDirective = typeof catEnc.sort === 'string' ? catEnc.sort : undefined;
-  if (sortDirective) {
-    const descending = sortDirective.startsWith('-');
-    entries.sort((a, b) => (descending ? b.value - a.value : a.value - b.value));
   }
 
   const innerWidth = Math.max(20, width - margin.left - margin.right);
@@ -469,7 +607,7 @@ function renderBarChartFallback(
         buffer,
         x0 + barSize / 2,
         originY + 18,
-        shortenLabel(categoryLabels[index]),
+        shortenLabel(entry.label),
         TEXT_COLOR,
         1,
         'center',
@@ -493,7 +631,7 @@ function renderBarChartFallback(
         buffer,
         originX - 12,
         y0 + barSize / 2,
-        shortenLabel(categoryLabels[index]),
+        shortenLabel(entry.label),
         TEXT_COLOR,
         1,
         'right',
