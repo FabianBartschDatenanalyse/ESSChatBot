@@ -1,23 +1,25 @@
 import { genkit } from 'genkit';
+import { createRequire } from 'module';
 
 const moduleSpecifier = '@genkit-ai/compat-oai/openai';
-
-const dynamicRequire: NodeJS.Require | undefined = (() => {
-  try {
-    return Function("return typeof require !== 'undefined' ? require : undefined;")();
-  } catch {
-    return undefined;
-  }
-})();
 
 let openAiPluginFactory: ((options: { apiKey: string }) => any) | null = null;
 let openAiLoadError: unknown;
 
-if (dynamicRequire) {
-  try {
-    const mod = dynamicRequire(moduleSpecifier);
-    openAiPluginFactory = mod?.default ?? mod ?? null;
-  } catch (error) {
+try {
+  const require = createRequire(import.meta.url);
+  const mod = require(moduleSpecifier);
+  openAiPluginFactory = mod?.default ?? mod ?? null;
+} catch (error) {
+  if ((error as NodeJS.ErrnoException | undefined)?.code === 'ERR_REQUIRE_ESM') {
+    try {
+      const mod = await import(moduleSpecifier);
+      openAiPluginFactory = (mod as any)?.default ?? mod ?? null;
+      openAiLoadError = undefined;
+    } catch (importError) {
+      openAiLoadError = importError;
+    }
+  } else {
     openAiLoadError = error;
   }
 }
