@@ -1,26 +1,43 @@
+import { createRequire } from 'node:module';
 import { genkit } from 'genkit';
 import { createRequire } from 'module';
 
 const moduleSpecifier = '@genkit-ai/compat-oai/openai';
 
+const isModuleNotFoundError = (error: unknown) => {
+  if (!error) return false;
+  const message = typeof error === 'string' ? error : (error as Error)?.message ?? '';
+  const code = (error as any)?.code;
+  return (
+    code === 'ERR_MODULE_NOT_FOUND' ||
+    code === 'MODULE_NOT_FOUND' ||
+    message.includes(`Cannot find module '${moduleSpecifier}'`) ||
+    message.includes(`Cannot find package '${moduleSpecifier}'`)
+  );
+};
+
 let openAiPluginFactory: ((options: { apiKey: string }) => any) | null = null;
 let openAiLoadError: unknown;
 
-try {
-  const require = createRequire(import.meta.url);
-  const mod = require(moduleSpecifier);
-  openAiPluginFactory = mod?.default ?? mod ?? null;
-} catch (error) {
-  if ((error as NodeJS.ErrnoException | undefined)?.code === 'ERR_REQUIRE_ESM') {
-    try {
-      const mod = await import(moduleSpecifier);
-      openAiPluginFactory = (mod as any)?.default ?? mod ?? null;
-      openAiLoadError = undefined;
-    } catch (importError) {
-      openAiLoadError = importError;
-    }
-  } else {
+const requireForCompat = (() => {
+  try {
+    return createRequire(import.meta.url);
+  } catch (error) {
     openAiLoadError = error;
+    return null;
+  }
+})();
+
+if (requireForCompat) {
+  try {
+    const mod = requireForCompat(moduleSpecifier);
+    openAiPluginFactory = mod?.default ?? mod ?? null;
+  } catch (error) {
+
+    openAiLoadError = error;
+    if (isModuleNotFoundError(error)) {
+      openAiPluginFactory = null;
+    }
   }
 }
 
