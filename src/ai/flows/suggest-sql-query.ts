@@ -8,7 +8,7 @@
  * - SuggestSqlQueryOutput - The return type for the suggestSqlQuery function.
  */
 
-import {ai} from '@/src/ai/genkit';
+import {ai, isAiConfigured} from '@/src/ai/genkit';
 import {z, Message} from 'genkit';
 
 const MessageSchema = z.object({
@@ -89,6 +89,10 @@ const suggestSqlQueryFlow = ai.defineFlow(
   },
   async input => {
     console.log('[suggestSqlQueryFlow] Received input:', JSON.stringify(input, null, 2));
+    if (!isAiConfigured) {
+      console.warn('[suggestSqlQueryFlow] AI backend is not configured. Returning empty SQL query.');
+      return { sqlQuery: '' };
+    }
     const {output} = await prompt(input);
 
 

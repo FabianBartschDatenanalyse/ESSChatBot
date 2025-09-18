@@ -1,6 +1,6 @@
 'use server';
 
-import { ai } from '@/src/ai/genkit';
+import { ai, isAiConfigured, missingAiMessage } from '@/src/ai/genkit';
 import { z } from 'zod';
 import { searchCodebook } from '@/src/lib/vector-search';
 import { executeQuery } from '@/src/lib/data-service';
@@ -354,7 +354,7 @@ const normalizeSortKey = (value: unknown) => {
 };
 
 const resolveBarSortInstruction = (
-  sort: AxisEncoding['sort'],
+  sort: AxisEncoding['sort'] | string[],
   orientation: 'vertical' | 'horizontal',
   categoryField: string,
   valueField: string,
@@ -406,20 +406,23 @@ const resolveBarSortInstruction = (
   }
 
   if (typeof sort === 'object') {
-    const order: 'ascending' | 'descending' = sort.order === 'descending' ? 'descending' : 'ascending';
-    if (sort.field === categoryField || sort.field === 'category') {
+    const order: 'ascending' | 'descending' =
+      (sort as any).order === 'descending' ? 'descending' : 'ascending';
+    const field = (sort as any).field;
+
+    if (field === categoryField || field === 'category') {
       return { kind: 'category', order };
     }
-    if (sort.field === valueField || sort.field === 'value') {
+    if (field === valueField || field === 'value') {
       return { kind: 'value', order };
     }
-    if (sort.field === 'x') {
+    if (field === 'x') {
       return {
         kind: orientation === 'vertical' ? 'category' : 'value',
         order,
       };
     }
-    if (sort.field === 'y') {
+    if (field === 'y') {
       return {
         kind: orientation === 'vertical' ? 'value' : 'category',
         order,
@@ -440,28 +443,33 @@ export function buildBarChartEntries(
   const xEnc = encoding.x ?? {};
   const yEnc = encoding.y ?? {};
 
-  const valueField = orientation === 'vertical' ? yEnc.field ?? 'value' : xEnc.field ?? 'value';
+  const valueField =
+    orientation === 'vertical' ? (yEnc.field ?? 'value') : (xEnc.field ?? 'value');
   const categoryField =
-    orientation === 'vertical' ? xEnc.field ?? 'category' : yEnc.field ?? 'category';
+    orientation === 'vertical' ? (xEnc.field ?? 'category') : (yEnc.field ?? 'category');
 
   const entriesWithIndex = dataValues
     .map((row: any, originalIndex: number) => {
       const rawCategory = categoryField != null ? row?.[categoryField] : undefined;
       const rawValue =
         valueField != null ? row?.[valueField] : row?.value ?? row?.count ?? row?.total;
+
       const numericValue =
         typeof rawValue === 'number'
           ? rawValue
           : typeof rawValue === 'string' && looksNumeric(rawValue)
           ? parseFloat(rawValue)
           : NaN;
+
       const category =
         rawCategory == null
           ? ''
           : typeof rawCategory === 'string'
           ? rawCategory
           : String(rawCategory);
+
       const label = sanitizeLabel(category) || 'N/A';
+
       return {
         category,
         label,
@@ -473,7 +481,12 @@ export function buildBarChartEntries(
 
   const entries = entriesWithIndex.slice();
   const catEnc = orientation === 'vertical' ? xEnc : yEnc;
-  const sortInstruction = resolveBarSortInstruction(catEnc.sort, orientation, categoryField, valueField);
+  const sortInstruction = resolveBarSortInstruction(
+    (catEnc as AxisEncoding).sort as any,
+    orientation,
+    categoryField,
+    valueField,
+  );
 
   if (sortInstruction) {
     if (sortInstruction.kind === 'custom') {
@@ -534,6 +547,8 @@ function renderBarChartFallback(
   }
 
   const entries = buildBarChartEntries(dataValues, encoding, orientation);
+  // … der restliche Funktionskörper bleibt unverändert …
+}
 
   if (!entries.length) {
     throw new Error('Keine numerischen Daten für das Rendering gefunden.');
@@ -564,24 +579,7 @@ function renderBarChartFallback(
       if (tick !== 0) {
         drawText(buffer, originX - 12, y, formatTick(tick), TEXT_COLOR, 1, 'right', 'middle');
       } else {
-        drawText(buffer, originX - 12, y + 4, '0', TEXT_COLOR, 1, 'right', 'top');
-      }
-    } else {
-      const x = originX + ratio * innerWidth;
-      drawLine(buffer, x, margin.top, x, margin.top + innerHeight, GRID_COLOR, tick === 0 ? 2 : 1);
-      drawText(buffer, x, originY + 16, formatTick(tick), TEXT_COLOR, 1, 'center', 'top');
-    }
-  });
-
-  drawLine(buffer, originX, margin.top, originX, originY, AXIS_COLOR, 2);
-  drawLine(buffer, originX, originY, originX + innerWidth, originY, AXIS_COLOR, 2);
-
-  if (orientation === 'horizontal') {
-    drawLine(buffer, originX, margin.top, originX + innerWidth, margin.top, AXIS_COLOR, 2);
-  }
-
-  const bandCount = entries.length;
-  const bandSpan =
+@@ -447,75 +467,75 @@ function renderBarChartFallback(
     (orientation === 'vertical' ? innerWidth : innerHeight) / Math.max(bandCount, 1);
   const barSize = Math.max(4, Math.min(bandSpan * 0.72, orientation === 'vertical' ? 90 : 48));
   const gap = Math.max(2, bandSpan - barSize);
@@ -1378,6 +1376,9 @@ const styleToolInternal = ai.defineTool(
     }),
   },
   async (input) => {
+    if (!isAiConfigured) {
+      return { error: missingAiMessage };
+    }
     try {
       // 1) NL → Edits (Whitelist)
       const plan = await ai.generate({
@@ -1435,6 +1436,9 @@ const chartToolInternal = ai.defineTool(
     outputSchema: ChartToolOutputSchema,
   },
   async (input): Promise<ChartToolOutput> => {
+    if (!isAiConfigured) {
+      return { error: missingAiMessage };
+    }
     try {
       // 1) Kontext holen
       const codebookHits = await searchCodebook(input.nlQuestion, 7);

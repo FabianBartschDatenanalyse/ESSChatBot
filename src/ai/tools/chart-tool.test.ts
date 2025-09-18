@@ -12,8 +12,10 @@ let buildBarChartEntries: typeof import('./chart-tool')['buildBarChartEntries'];
 
 beforeAll(async () => {
   process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? 'test-api-key';
-  process.env.NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://localhost:54321';
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'anon-key';
+  process.env.NEXT_PUBLIC_SUPABASE_URL =
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://localhost:54321';
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'anon-key';
 
   ({ renderVegaLiteToPngDataUrl, buildBarChartEntries } = await import('./chart-tool'));
 });
