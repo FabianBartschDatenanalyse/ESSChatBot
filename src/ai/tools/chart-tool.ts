@@ -121,6 +121,23 @@ const VALUE_TEXT_COLOR: RGBA = [15, 23, 42, 255];
 const FONT_WIDTH = 5;
 const FONT_HEIGHT = 7;
 
+const TITLE_FONT_SCALE = 3;
+const SUBTITLE_FONT_SCALE = 2;
+const AXIS_TITLE_FONT_SCALE = 2;
+const AXIS_TICK_FONT_SCALE = 1.6;
+const CATEGORY_LABEL_FONT_SCALE = 1.6;
+const VALUE_LABEL_FONT_SCALE = 1.6;
+
+const AXIS_TICK_PADDING_X = 12 + AXIS_TICK_FONT_SCALE * 6;
+const AXIS_TICK_PADDING_Y = 24 + AXIS_TICK_FONT_SCALE * FONT_HEIGHT;
+const CATEGORY_LABEL_PADDING = 28 + CATEGORY_LABEL_FONT_SCALE * FONT_HEIGHT;
+const AXIS_TITLE_PADDING_BOTTOM = CATEGORY_LABEL_PADDING + CATEGORY_LABEL_FONT_SCALE * FONT_HEIGHT + 16;
+const AXIS_TITLE_PADDING_TOP = 32;
+const VALUE_LABEL_VERTICAL_GAP = 12 + VALUE_LABEL_FONT_SCALE * 2;
+const VALUE_LABEL_HORIZONTAL_GAP = 12 + VALUE_LABEL_FONT_SCALE * 4;
+const POINT_VALUE_LABEL_GAP = 14 + VALUE_LABEL_FONT_SCALE * 2;
+const POINT_RADIUS = 5;
+
 const FONT_5X7: Record<string, string[]> = {
   ' ': ['     ', '     ', '     ', '     ', '     ', '     ', '     '],
   '!': ['  #  ', '  #  ', '  #  ', '  #  ', '  #  ', '     ', '  #  '],
@@ -333,12 +350,6 @@ function renderBarChartFallback(
 ) {
   const width = buffer.width;
   const height = buffer.height;
-  const margin = {
-    top: 80,
-    right: 40,
-    bottom: 110,
-    left: 100,
-  };
 
   const xEnc = encoding.x ?? {};
   const yEnc = encoding.y ?? {};
@@ -350,6 +361,11 @@ function renderBarChartFallback(
   ) {
     orientation = 'horizontal';
   }
+
+  const margin =
+    orientation === 'vertical'
+      ? { top: 110, right: 60, bottom: 160, left: 140 }
+      : { top: 110, right: 200, bottom: 140, left: 220 };
 
   const entries = buildBarChartEntries(dataValues, encoding, orientation);
   if (!entries.length) {
@@ -378,11 +394,29 @@ function renderBarChartFallback(
     if (orientation === 'vertical') {
       const y = originY - ratio * innerHeight;
       drawLine(buffer, originX, y, originX + innerWidth, y, GRID_COLOR, tick === 0 ? 2 : 1);
-      drawText(buffer, originX - 12, y, formatTick(tick), TEXT_COLOR, 1, 'right', 'middle');
+      drawText(
+        buffer,
+        originX - AXIS_TICK_PADDING_X,
+        y,
+        formatTick(tick),
+        TEXT_COLOR,
+        AXIS_TICK_FONT_SCALE,
+        'right',
+        'middle',
+      );
     } else {
       const x = originX + ratio * innerWidth;
       drawLine(buffer, x, margin.top, x, originY, GRID_COLOR, tick === 0 ? 2 : 1);
-      drawText(buffer, x, originY + 18, formatTick(tick), TEXT_COLOR, 1, 'center', 'top');
+      drawText(
+        buffer,
+        x,
+        originY + AXIS_TICK_PADDING_Y,
+        formatTick(tick),
+        TEXT_COLOR,
+        AXIS_TICK_FONT_SCALE,
+        'center',
+        'top',
+      );
     }
   });
 
@@ -401,23 +435,24 @@ function renderBarChartFallback(
       const x0 = originX + index * bandSpan + gap / 2;
       const y0 = originY - barHeight;
       fillRect(buffer, x0, y0, barSize, barHeight, BAR_COLOR);
+      const valueLabelY = Math.max(margin.top + 8, y0 - VALUE_LABEL_VERTICAL_GAP);
       drawText(
         buffer,
         x0 + barSize / 2,
-        y0 - 10,
+        valueLabelY,
         formatTick(entry.value),
         VALUE_TEXT_COLOR,
-        1,
+        VALUE_LABEL_FONT_SCALE,
         'center',
         'bottom',
       );
       drawText(
         buffer,
         x0 + barSize / 2,
-        originY + 18,
-        shortenLabel(entry.label),
+        originY + CATEGORY_LABEL_PADDING,
+        shortenLabel(entry.label, 22),
         TEXT_COLOR,
-        1,
+        CATEGORY_LABEL_FONT_SCALE,
         'center',
         'top',
       );
@@ -427,21 +462,21 @@ function renderBarChartFallback(
       fillRect(buffer, originX, y0, barLength, barSize, BAR_COLOR);
       drawText(
         buffer,
-        originX + barLength + 8,
+        Math.min(originX + barLength + VALUE_LABEL_HORIZONTAL_GAP, width - 8),
         y0 + barSize / 2,
         formatTick(entry.value),
         VALUE_TEXT_COLOR,
-        1,
+        VALUE_LABEL_FONT_SCALE,
         'left',
         'middle',
       );
       drawText(
         buffer,
-        originX - 12,
+        originX - AXIS_TICK_PADDING_X,
         y0 + barSize / 2,
-        shortenLabel(entry.label),
+        shortenLabel(entry.label, 22),
         TEXT_COLOR,
-        1,
+        CATEGORY_LABEL_FONT_SCALE,
         'right',
         'middle',
       );
@@ -454,9 +489,27 @@ function renderBarChartFallback(
       : sanitizeLabel(xEnc.title ?? prettyAxisTitle(xEnc.field) ?? 'WERT');
   if (valueTitle) {
     if (orientation === 'vertical') {
-      drawText(buffer, margin.left - 60, margin.top - 14, valueTitle, TEXT_COLOR, 1, 'center', 'bottom');
+      drawText(
+        buffer,
+        margin.left - (AXIS_TICK_PADDING_X + 24),
+        margin.top - AXIS_TITLE_PADDING_TOP,
+        valueTitle,
+        TEXT_COLOR,
+        AXIS_TITLE_FONT_SCALE,
+        'center',
+        'bottom',
+      );
     } else {
-      drawText(buffer, originX + innerWidth / 2, margin.top - 18, valueTitle, TEXT_COLOR, 1, 'center', 'bottom');
+      drawText(
+        buffer,
+        originX + innerWidth / 2,
+        margin.top - AXIS_TITLE_PADDING_TOP,
+        valueTitle,
+        TEXT_COLOR,
+        AXIS_TITLE_FONT_SCALE,
+        'center',
+        'bottom',
+      );
     }
   }
 
@@ -466,9 +519,27 @@ function renderBarChartFallback(
       : sanitizeLabel(yEnc.title ?? prettyAxisTitle(yEnc.field) ?? '');
   if (categoryTitle) {
     if (orientation === 'vertical') {
-      drawText(buffer, originX + innerWidth / 2, originY + 46, categoryTitle, TEXT_COLOR, 1, 'center', 'top');
+      drawText(
+        buffer,
+        originX + innerWidth / 2,
+        originY + AXIS_TITLE_PADDING_BOTTOM,
+        categoryTitle,
+        TEXT_COLOR,
+        AXIS_TITLE_FONT_SCALE,
+        'center',
+        'top',
+      );
     } else {
-      drawText(buffer, margin.left - 70, margin.top + innerHeight / 2, categoryTitle, TEXT_COLOR, 1, 'center', 'middle');
+      drawText(
+        buffer,
+        margin.left - (AXIS_TICK_PADDING_X + 40),
+        margin.top + innerHeight / 2,
+        categoryTitle,
+        TEXT_COLOR,
+        AXIS_TITLE_FONT_SCALE,
+        'center',
+        'middle',
+      );
     }
   }
 }
@@ -482,10 +553,10 @@ function renderLineChartFallback(
   const width = buffer.width;
   const height = buffer.height;
   const margin = {
-    top: 80,
-    right: 50,
-    bottom: 90,
-    left: 100,
+    top: 110,
+    right: 80,
+    bottom: 160,
+    left: 140,
   };
 
   const xEnc = encoding.x ?? {};
@@ -589,7 +660,16 @@ function renderLineChartFallback(
       GRID_COLOR,
       Math.abs(tick) < 1e-6 ? 2 : 1,
     );
-    drawText(buffer, originX - 12, y, formatTick(tick), TEXT_COLOR, 1, 'right', 'middle');
+    drawText(
+      buffer,
+      originX - AXIS_TICK_PADDING_X,
+      y,
+      formatTick(tick),
+      TEXT_COLOR,
+      AXIS_TICK_FONT_SCALE,
+      'right',
+      'middle',
+    );
   });
 
   if (hasNumericX) {
@@ -601,20 +681,47 @@ function renderLineChartFallback(
     ) {
       const x = xScale(tick);
       drawLine(buffer, x, margin.top, x, originY, GRID_COLOR, 1);
-      drawText(buffer, x, originY + 18, formatTick(tick), TEXT_COLOR, 1, 'center', 'top');
+      drawText(
+        buffer,
+        x,
+        originY + AXIS_TICK_PADDING_Y,
+        formatTick(tick),
+        TEXT_COLOR,
+        AXIS_TICK_FONT_SCALE,
+        'center',
+        'top',
+      );
     }
   } else if (entries.length <= 12) {
     entries.forEach((_, idx) => {
       const x = xScale(xPositions[idx]);
       drawLine(buffer, x, margin.top, x, originY, GRID_COLOR, 1);
-      drawText(buffer, x, originY + 18, shortenLabel(labels[idx]), TEXT_COLOR, 1, 'center', 'top');
+      drawText(
+        buffer,
+        x,
+        originY + AXIS_TICK_PADDING_Y,
+        shortenLabel(labels[idx], 22),
+        TEXT_COLOR,
+        CATEGORY_LABEL_FONT_SCALE,
+        'center',
+        'top',
+      );
     });
   } else {
     const sample = new Set<number>([0, entries.length - 1, Math.floor((entries.length - 1) / 2)]);
     sample.forEach((idx) => {
       const x = xScale(xPositions[idx]);
       drawLine(buffer, x, margin.top, x, originY, GRID_COLOR, 1);
-      drawText(buffer, x, originY + 18, shortenLabel(labels[idx]), TEXT_COLOR, 1, 'center', 'top');
+      drawText(
+        buffer,
+        x,
+        originY + AXIS_TICK_PADDING_Y,
+        shortenLabel(labels[idx], 22),
+        TEXT_COLOR,
+        CATEGORY_LABEL_FONT_SCALE,
+        'center',
+        'top',
+      );
     });
   }
 
@@ -644,17 +751,45 @@ function renderLineChartFallback(
   sorted.forEach((item) => {
     const cx = xScale(item.xValue);
     const cy = yScale(item.entry.numericY);
-    drawCircle(buffer, cx, cy, 4, scatterOnly ? POINT_COLOR : LINE_COLOR);
-    drawText(buffer, cx, cy - 10, formatTick(item.entry.numericY), VALUE_TEXT_COLOR, 1, 'center', 'bottom');
+    const labelY = Math.max(margin.top + 8, cy - POINT_VALUE_LABEL_GAP);
+    drawCircle(buffer, cx, cy, POINT_RADIUS, scatterOnly ? POINT_COLOR : LINE_COLOR);
+    drawText(
+      buffer,
+      cx,
+      labelY,
+      formatTick(item.entry.numericY),
+      VALUE_TEXT_COLOR,
+      VALUE_LABEL_FONT_SCALE,
+      'center',
+      'bottom',
+    );
   });
 
   const xTitle = sanitizeLabel(xEnc.title ?? prettyAxisTitle(xEnc.field) ?? '');
   if (xTitle) {
-    drawText(buffer, originX + innerWidth / 2, originY + 46, xTitle, TEXT_COLOR, 1, 'center', 'top');
+    drawText(
+      buffer,
+      originX + innerWidth / 2,
+      originY + AXIS_TITLE_PADDING_BOTTOM,
+      xTitle,
+      TEXT_COLOR,
+      AXIS_TITLE_FONT_SCALE,
+      'center',
+      'top',
+    );
   }
   const yTitle = sanitizeLabel(yEnc.title ?? prettyAxisTitle(yEnc.field) ?? '');
   if (yTitle) {
-    drawText(buffer, margin.left - 60, margin.top - 18, yTitle, TEXT_COLOR, 1, 'center', 'bottom');
+    drawText(
+      buffer,
+      margin.left - (AXIS_TICK_PADDING_X + 24),
+      margin.top - AXIS_TITLE_PADDING_TOP,
+      yTitle,
+      TEXT_COLOR,
+      AXIS_TITLE_FONT_SCALE,
+      'center',
+      'bottom',
+    );
   }
 }
 
@@ -675,10 +810,13 @@ function drawTitle(buffer: PixelBuffer, rawTitle: any) {
   const normalizedSubtitle = sanitizeLabel(subtitle ?? '');
 
   if (normalizedTitle) {
-    drawText(buffer, width / 2, 36, normalizedTitle, TEXT_COLOR, 2, 'center', 'middle');
+    const titleY = 36;
+    drawText(buffer, width / 2, titleY, normalizedTitle, TEXT_COLOR, TITLE_FONT_SCALE, 'center', 'middle');
   }
   if (normalizedSubtitle) {
-    drawText(buffer, width / 2, 64, normalizedSubtitle, TEXT_COLOR, 1, 'center', 'middle');
+    const subtitleY =
+      36 + TITLE_FONT_SCALE * FONT_HEIGHT + 16;
+    drawText(buffer, width / 2, subtitleY, normalizedSubtitle, TEXT_COLOR, SUBTITLE_FONT_SCALE, 'center', 'middle');
   }
 }
 
