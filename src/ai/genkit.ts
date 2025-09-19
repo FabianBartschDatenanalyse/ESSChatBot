@@ -1,5 +1,8 @@
-import * as moduleModule from 'module';
+
+import { createRequire } from 'node:module';
+
 import { genkit } from 'genkit';
+
 
 const { createRequire } = moduleModule;
 
@@ -21,6 +24,7 @@ let openAiPluginFactory: ((options: { apiKey: string }) => any) | null = null;
 let openAiLoadError: unknown;
 
 const requireForCompat = (() => {
+
   try {
     return createRequire(import.meta.url);
   } catch (error) {
@@ -31,9 +35,11 @@ const requireForCompat = (() => {
 
 if (requireForCompat) {
   try {
+
     const mod = requireForCompat(moduleSpecifier);
     openAiPluginFactory = mod?.default ?? mod ?? null;
   } catch (error) {
+
     openAiLoadError = error;
     if (isModuleNotFoundError(error)) {
       openAiPluginFactory = null;
