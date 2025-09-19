@@ -20,35 +20,58 @@ const isModuleNotFoundError = (error: unknown) => {
   );
 };
 
-let openAiPluginFactory: ((options: { apiKey: string }) => any) | null = null;
-let openAiLoadError: unknown;
 
-const requireForCompat = (() => {
+type OpenAiPluginFactory = (options: { apiKey: string }) => any;
+
+const { plugin: openAiPluginFactory, error: openAiLoadError } = await (async () => {
+  let detectedError: unknown;
+
+  const recordError = (error: unknown) => {
+    if (!detectedError && error && !isModuleNotFoundError(error)) {
+      detectedError = error;
+    }
+  };
+
+  const normalizeModule = (mod: any): OpenAiPluginFactory | null => {
+    const candidate = mod?.default ?? mod;
+    return typeof candidate === 'function' ? candidate : null;
+  };
 
   try {
-    return createRequire(import.meta.url);
+    const { createRequire } = await import('node:module');
+    try {
+      const requireForCompat = createRequire(import.meta.url);
+      const mod = requireForCompat(moduleSpecifier);
+      const plugin = normalizeModule(mod);
+      if (plugin) {
+        return { plugin, error: detectedError };
+      }
+    } catch (error) {
+      recordError(error);
+    }
   } catch (error) {
-    openAiLoadError = error;
-    return null;
+    recordError(error);
   }
+
+  try {
+    const mod = await import(moduleSpecifier);
+    const plugin = normalizeModule(mod);
+    if (plugin) {
+      return { plugin, error: detectedError };
+    }
+  } catch (error) {
+    recordError(error);
+
+  }
+
+  return { plugin: null, error: detectedError };
 })();
 
-if (requireForCompat) {
-  try {
-
-    const mod = requireForCompat(moduleSpecifier);
-    openAiPluginFactory = mod?.default ?? mod ?? null;
-  } catch (error) {
-
-    openAiLoadError = error;
-    if (isModuleNotFoundError(error)) {
-      openAiPluginFactory = null;
-    }
-  }
-}
-
 const hasApiKey = Boolean(process.env.OPENAI_API_KEY);
-const plugins = openAiPluginFactory && hasApiKey ? [openAiPluginFactory({ apiKey: process.env.OPENAI_API_KEY! })] : [];
+const plugins =
+  openAiPluginFactory && hasApiKey
+    ? [openAiPluginFactory({ apiKey: process.env.OPENAI_API_KEY! })]
+    : [];
 
 export const isAiConfigured = plugins.length > 0;
 
