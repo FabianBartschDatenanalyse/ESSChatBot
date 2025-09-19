@@ -1,4 +1,10 @@
+
+import { createRequire } from 'node:module';
+
 import { genkit } from 'genkit';
+
+
+const { createRequire } = moduleModule;
 
 const moduleSpecifier = '@genkit-ai/compat-oai/openai';
 
@@ -13,6 +19,7 @@ const isModuleNotFoundError = (error: unknown) => {
     message.includes(`Cannot find package '${moduleSpecifier}'`)
   );
 };
+
 
 type OpenAiPluginFactory = (options: { apiKey: string }) => any;
 
@@ -54,6 +61,7 @@ const { plugin: openAiPluginFactory, error: openAiLoadError } = await (async () 
     }
   } catch (error) {
     recordError(error);
+
   }
 
   return { plugin: null, error: detectedError };
