@@ -1,10 +1,6 @@
 
 import { createRequire } from 'node:module';
-
 import { genkit } from 'genkit';
-
-
-const { createRequire } = moduleModule;
 
 const moduleSpecifier = '@genkit-ai/compat-oai/openai';
 
@@ -38,16 +34,11 @@ const { plugin: openAiPluginFactory, error: openAiLoadError } = await (async () 
   };
 
   try {
-    const { createRequire } = await import('node:module');
-    try {
-      const requireForCompat = createRequire(import.meta.url);
-      const mod = requireForCompat(moduleSpecifier);
-      const plugin = normalizeModule(mod);
-      if (plugin) {
-        return { plugin, error: detectedError };
-      }
-    } catch (error) {
-      recordError(error);
+    const requireForCompat = createRequire(import.meta.url);
+    const mod = requireForCompat(moduleSpecifier);
+    const plugin = normalizeModule(mod);
+    if (plugin) {
+      return { plugin, error: detectedError };
     }
   } catch (error) {
     recordError(error);
