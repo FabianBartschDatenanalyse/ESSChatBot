@@ -29,8 +29,16 @@ const { plugin: openAiPluginFactory, error: openAiLoadError } = await (async () 
   };
 
   const normalizeModule = (mod: any): OpenAiPluginFactory | null => {
-    const candidate = mod?.default ?? mod;
-    return typeof candidate === 'function' ? candidate : null;
+    const candidates = [
+      mod?.default,
+      mod?.plugin,
+      mod?.openai,
+      mod?.openAi,
+      mod?.OpenAI,
+      mod,
+    ];
+    const candidate = candidates.find((entry) => typeof entry === 'function');
+    return candidate ?? null;
   };
 
   try {
