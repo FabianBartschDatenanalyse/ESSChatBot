@@ -2,28 +2,68 @@ import { genkit } from 'genkit';
 
 const moduleSpecifier = '@genkit-ai/compat-oai/openai';
 
-const dynamicRequire: NodeJS.Require | undefined = (() => {
+const isModuleNotFoundError = (error: unknown) => {
+  if (!error) return false;
+  const message = typeof error === 'string' ? error : (error as Error)?.message ?? '';
+  const code = (error as any)?.code;
+  return (
+    code === 'ERR_MODULE_NOT_FOUND' ||
+    code === 'MODULE_NOT_FOUND' ||
+    message.includes(`Cannot find module '${moduleSpecifier}'`) ||
+    message.includes(`Cannot find package '${moduleSpecifier}'`)
+  );
+};
+
+type OpenAiPluginFactory = (options: { apiKey: string }) => any;
+
+const { plugin: openAiPluginFactory, error: openAiLoadError } = await (async () => {
+  let detectedError: unknown;
+
+  const recordError = (error: unknown) => {
+    if (!detectedError && error && !isModuleNotFoundError(error)) {
+      detectedError = error;
+    }
+  };
+
+  const normalizeModule = (mod: any): OpenAiPluginFactory | null => {
+    const candidate = mod?.default ?? mod;
+    return typeof candidate === 'function' ? candidate : null;
+  };
+
   try {
-    return Function("return typeof require !== 'undefined' ? require : undefined;")();
-  } catch {
-    return undefined;
+    const { createRequire } = await import('node:module');
+    try {
+      const requireForCompat = createRequire(import.meta.url);
+      const mod = requireForCompat(moduleSpecifier);
+      const plugin = normalizeModule(mod);
+      if (plugin) {
+        return { plugin, error: detectedError };
+      }
+    } catch (error) {
+      recordError(error);
+    }
+  } catch (error) {
+    recordError(error);
   }
+
+  try {
+    const mod = await import(moduleSpecifier);
+    const plugin = normalizeModule(mod);
+    if (plugin) {
+      return { plugin, error: detectedError };
+    }
+  } catch (error) {
+    recordError(error);
+  }
+
+  return { plugin: null, error: detectedError };
 })();
 
-let openAiPluginFactory: ((options: { apiKey: string }) => any) | null = null;
-let openAiLoadError: unknown;
-
-if (dynamicRequire) {
-  try {
-    const mod = dynamicRequire(moduleSpecifier);
-    openAiPluginFactory = mod?.default ?? mod ?? null;
-  } catch (error) {
-    openAiLoadError = error;
-  }
-}
-
 const hasApiKey = Boolean(process.env.OPENAI_API_KEY);
-const plugins = openAiPluginFactory && hasApiKey ? [openAiPluginFactory({ apiKey: process.env.OPENAI_API_KEY! })] : [];
+const plugins =
+  openAiPluginFactory && hasApiKey
+    ? [openAiPluginFactory({ apiKey: process.env.OPENAI_API_KEY! })]
+    : [];
 
 export const isAiConfigured = plugins.length > 0;
 
