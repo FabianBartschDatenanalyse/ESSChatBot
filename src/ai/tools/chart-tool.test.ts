@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { buildBarChartEntries } from './chart-tool-shared';
 
 vi.mock('@/src/ai/genkit', () => ({
   ai: {
@@ -8,7 +9,6 @@ vi.mock('@/src/ai/genkit', () => ({
 }));
 
 let renderVegaLiteToPngDataUrl: typeof import('./chart-tool')['renderVegaLiteToPngDataUrl'];
-let buildBarChartEntries: typeof import('./chart-tool')['buildBarChartEntries'];
 
 beforeAll(async () => {
   process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? 'test-api-key';
@@ -17,7 +17,7 @@ beforeAll(async () => {
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY =
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'anon-key';
 
-  ({ renderVegaLiteToPngDataUrl, buildBarChartEntries } = await import('./chart-tool'));
+  ({ renderVegaLiteToPngDataUrl } = await import('./chart-tool'));
 });
 
 const simpleSpec = {
