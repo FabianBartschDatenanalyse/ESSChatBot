@@ -17,6 +17,8 @@ import { z } from 'zod';
 import { executeQueryTool } from '@/src/ai/tools/sql-query-tool';
 import { searchCodebook } from '@/src/lib/vector-search';
 import { statisticsTool } from '@/src/ai/tools/statistics-tool';
+import { visualizationTool } from '@/src/ai/tools/visualization-tool';
+import { ChartDefinitionSchema, type ChartDefinition } from '@/src/lib/types';
 
 const MessageSchema = z.object({
   role: z.enum(['user', 'assistant', 'tool']),
@@ -33,6 +35,7 @@ const MainAssistantOutputSchema = z.object({
   answer: z.string().describe('The final answer to be displayed to the user.'),
   sqlQuery: z.string().optional().describe('The SQL query that was executed.'),
   retrievedContext: z.string().optional().describe('The context retrieved from the vector database.'),
+  chart: ChartDefinitionSchema.optional().describe('Optional chart configuration for visualization.'),
 });
 export type MainAssistantOutput = z.infer<typeof MainAssistantOutputSchema>;
 
@@ -124,6 +127,7 @@ CODEBOOK CONTEXT (authoritative variable names):
 ${retrievedContext}`;
 
     let statsOutput: any | null = null;
+    let chartDefinition: ChartDefinition | undefined;
     try {
       const statsExtraction = await ai.generate({
         model: 'openai/gpt-4o',
@@ -160,6 +164,7 @@ Write a clear, user-friendly answer based on the regression result. If there was
           answer,
           sqlQuery: String(statsOutput?.sqlQuery || ''), // SQL aus statisticsTool, falls vorhanden
           retrievedContext,
+          chart: undefined,
         };
       }
     } catch (e) {
@@ -172,6 +177,34 @@ Write a clear, user-friendly answer based on the regression result. If there was
     const toolOutput = await executeQueryTool({ nlQuestion: reformulatedQuestion, history: input.history });
     console.log('[mainAssistantFlow] Tool output received:', JSON.stringify(toolOutput, null, 2));
 
+    const visualizationRegex = /(visualis|diagram|plot|chart|graph|grafik|visualize|visualization|diagramm)/i;
+    const wantsVisualization =
+      visualizationRegex.test(input.question) ||
+      visualizationRegex.test(reformulatedQuestion);
+
+    if (
+      wantsVisualization &&
+      Array.isArray(toolOutput.data) &&
+      toolOutput.data.length > 0
+    ) {
+      try {
+        const plan = await visualizationTool({
+          question: reformulatedQuestion,
+          dataPreview: toolOutput.data.slice(0, 20),
+        });
+        chartDefinition = {
+          ...plan,
+          data: toolOutput.data.slice(0, 100),
+        };
+        console.log('[mainAssistantFlow] Visualization plan created:', chartDefinition);
+      } catch (visualizationError) {
+        console.warn(
+          '[mainAssistantFlow] Visualization tool failed, proceeding without chart:',
+          visualizationError,
+        );
+      }
+    }
+
     const finalPrompt = `You are an expert data analyst and assistant for the European Social Survey (ESS).
 You have just executed a query to answer the user's question.
 
@@ -180,6 +213,25 @@ The reformulated question used for the query: "${reformulatedQuestion}"
 
 Here is the result from the database tool:
 ${JSON.stringify(toolOutput, null, 2)}
+
+${
+  chartDefinition
+    ? `A chart configuration has also been prepared to visualize the findings:
+${JSON.stringify(
+        {
+          type: chartDefinition.type,
+          xKey: chartDefinition.xKey,
+          series: chartDefinition.series,
+          title: chartDefinition.title,
+          description: chartDefinition.description,
+          dataPoints: chartDefinition.data.length,
+        },
+        null,
+        2,
+      )}
+Describe this visualization in your response.`
+    : 'No chart configuration was generated.'
+}
 
 Now, formulate a final, user-friendly answer based on the tool's output. If there was an error, state it clearly and suggest next steps.`;
 
@@ -190,6 +242,7 @@ Now, formulate a final, user-friendly answer based on the tool's output. If ther
       answer,
       sqlQuery: String(toolOutput.sqlQuery || ''),
       retrievedContext,
+      chart: chartDefinition,
     };
   }
 );
