@@ -17,6 +17,7 @@ import { type Conversation, type Message } from '@/src/lib/types';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/src/components/ui/accordion';
 import { Code2, Database } from 'lucide-react';
 import Logo from '@/src/components/logo';
+import { ChatVisualization } from '@/src/components/chat-visualization';
 
 const formSchema = z.object({
   question: z.string().min(1, 'Question cannot be empty.'),
@@ -65,6 +66,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
         content: result.answer,
         sqlQuery: result.sqlQuery,
         retrievedContext: result.retrievedContext,
+        chart: result.chart,
       };
       
       const finalMessages = [...newMessages, assistantMessage];
@@ -99,6 +101,11 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
               )}
               <div className={`rounded-lg p-3 max-w-[80%] ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
               <div className="text-sm whitespace-pre-wrap">{message.content}</div>
+                {message.chart && (
+                  <div className="mt-3 rounded-lg border bg-background/70 p-3">
+                    <ChatVisualization chart={message.chart} />
+                  </div>
+                )}
                 {(message.sqlQuery || message.retrievedContext) && (
                    <Accordion type="single" collapsible className="w-full mt-2">
                       <AccordionItem value="details" className='border-0'>
