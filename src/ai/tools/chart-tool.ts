@@ -283,6 +283,67 @@ const prettyAxisTitle = (k?: string) => {
   return k;
 };
 
+const ZERO_TO_TEN_DOMAIN: [number, number] = [0, 10];
+
+const fieldImpliesZeroToTen = (field?: string) => {
+  if (!field) return false;
+  const normalized = field.toLowerCase();
+  if (normalized === 'avg_trust') return true;
+  if (normalized.startsWith('trst')) return true;
+  return false;
+};
+
+const titleImpliesZeroToTen = (title?: string) => {
+  if (!title) return false;
+  return /0\s*[\u2013\-]\s*10/.test(title);
+};
+
+const resolveDefaultDomain = (field?: string, axisTitle?: string): [number, number] | null => {
+  if (fieldImpliesZeroToTen(field)) return ZERO_TO_TEN_DOMAIN;
+  if (titleImpliesZeroToTen(axisTitle)) return ZERO_TO_TEN_DOMAIN;
+  return null;
+};
+
+const generateTicksForDomain = (
+  domain: [number, number],
+  targetTickCount = 6,
+): number[] => {
+  const [min, max] = domain;
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return [];
+  const step = computeNiceStep(max - min, Math.max(1, targetTickCount - 1));
+  if (!Number.isFinite(step) || step <= 0) return [];
+  const ticks: number[] = [];
+  for (let value = min; value <= max + step * 0.25; value += step) {
+    const rounded = Number(value.toFixed(6));
+    if (ticks.length && Math.abs(rounded - ticks[ticks.length - 1]) < 1e-6) continue;
+    ticks.push(Math.min(max, rounded));
+  }
+  if (!ticks.length || Math.abs(ticks[0] - min) > 1e-6) {
+    ticks.unshift(min);
+  }
+  if (Math.abs(ticks[ticks.length - 1] - max) > 1e-6) {
+    ticks.push(max);
+  }
+  return ticks.map((tick) => Number(tick.toFixed(6)));
+};
+
+const applyDefaultAxisDomain = (channel: any, field?: string) => {
+  if (!channel || channel.type !== 'quantitative') return;
+  const axisTitle = channel.axis?.title ?? prettyAxisTitle(field);
+  const domain = resolveDefaultDomain(field, axisTitle);
+  if (!domain) return;
+  channel.scale = { ...(channel.scale ?? {}), domain, nice: false, zero: domain[0] <= 0 && domain[1] >= 0 };
+  const hasExplicitValues = Array.isArray(channel.axis?.values) && channel.axis?.values.length;
+  if (!hasExplicitValues) {
+    const ticks = generateTicksForDomain(domain);
+    if (ticks.length) {
+      channel.axis = { ...(channel.axis ?? {}), values: ticks, tickCount: undefined };
+    }
+  } else if (channel.axis) {
+    channel.axis.tickCount = undefined;
+  }
+};
+
 function renderWithFallback(spec: any): string {
   const width = clampNumber(Number(spec?.width) || 720, 320, 1600);
   const height = clampNumber(Number(spec?.height) || 420, 240, 1200);
@@ -1432,10 +1493,13 @@ const chartToolInternal = ai.defineTool(
 
       // Mark inkl. Pie
       const mark =
-        plan.chartType === 'line' ? { type: 'line', point: true }
-        : plan.chartType === 'scatter' ? { type: 'point' }
-        : plan.chartType === 'pie' ? { type: 'arc' }
-        : { type: 'bar' };
+        plan.chartType === 'line'
+          ? { type: 'line', point: true }
+          : plan.chartType === 'scatter'
+          ? { type: 'point' }
+          : plan.chartType === 'pie'
+          ? { type: 'arc' }
+          : { type: 'bar', cornerRadiusTopLeft: 4, cornerRadiusTopRight: 4, tooltip: true };
 
       const isBarMark = (mark as any).type === 'bar';
 
@@ -1605,6 +1669,11 @@ const chartToolInternal = ai.defineTool(
         }
       }
 
+      applyDefaultAxisDomain(encX, plan.x);
+      if (encY) {
+        applyDefaultAxisDomain(encY, plan.y);
+      }
+
       if (isBarMark && categoryField && metricField) {
         const categoryEnc = (categoryField === plan.x) ? encX : encY;
         const metricAxis = (metricField === plan.x) ? 'x' : 'y';
@@ -1639,12 +1708,12 @@ const chartToolInternal = ai.defineTool(
         if (metricEnc?.aggregate) textChannelDef.aggregate = metricEnc.aggregate;
 
         const textMarkAlign =
-          (metricField === plan.x)
-            ? { align: 'left', baseline: 'middle', dx: 5 }
-            : { align: 'center', baseline: 'bottom', dy: -6 };
+          metricField === plan.x
+            ? { align: 'left', baseline: 'middle', dx: 6 }
+            : { align: 'center', baseline: 'bottom', dy: -8 };
 
         textLayer = {
-          mark: { type: 'text', fontSize: 11, ...textMarkAlign },
+          mark: { type: 'text', fontSize: 11, font: FONT_FAMILY, color: '#0f172a', ...textMarkAlign },
           encoding: { text: textChannelDef }
         };
       }
@@ -1652,6 +1721,10 @@ const chartToolInternal = ai.defineTool(
       const fallbackTitle =
         (`${prettyAxisTitle(plan.y) ?? ''}${plan.y ? ' nach ' : ''}${prettyAxisTitle(plan.x) ?? ''}`).trim() || 'Diagramm';
       const resolvedTitle = plan.title ?? fallbackTitle;
+      const titleSpec =
+        typeof resolvedTitle === 'string'
+          ? { text: resolvedTitle }
+          : resolvedTitle;
 
       const FONT_FAMILY = 'DejaVu Sans';
 
@@ -1660,7 +1733,9 @@ const chartToolInternal = ai.defineTool(
         data: { values: dataValues },
         width: 720,
         height: 420,
-        title: resolvedTitle,
+        padding: { top: 36, right: 36, bottom: 96, left: 96 },
+        view: { stroke: null },
+        title: titleSpec,
         encoding: {
           x: encX,
           ...(plan.y ? { y: encY } : {}),
@@ -1674,13 +1749,27 @@ const chartToolInternal = ai.defineTool(
         config: {
           numberFormat: '.2f',
           text:  { font: FONT_FAMILY, color: '#111' },
-          title: { font: FONT_FAMILY, color: '#111', fontSize: 14 },
+          title: { font: FONT_FAMILY, color: '#111', fontSize: 16, subtitleFont: FONT_FAMILY, subtitleColor: '#1f2937' },
           axis:  {
             labelFont: FONT_FAMILY,
             titleFont: FONT_FAMILY,
             labelColor: '#111',
             titleColor: '#111',
+            labelFontSize: 11,
+            titleFontSize: 13,
+            labelPadding: 8,
             grid: true,
+            gridColor: '#e2e8f0',
+            gridDash: [2, 2],
+            domainColor: '#94a3b8',
+            tickColor: '#94a3b8',
+          },
+          axisX: {
+            labelAngle: 0,
+            labelPadding: 12,
+          },
+          axisY: {
+            labelPadding: 8,
           },
           legend: {
             labelFont: FONT_FAMILY,
