@@ -5,7 +5,6 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { mainAssistant } from '@/src/ai/flows/main-assistant-flow';
 
 import { Form, FormControl, FormField, FormItem } from '@/src/components/ui/form';
 import { Input } from '@/src/components/ui/input';
@@ -53,11 +52,23 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
     try {
       // Pass only the essential parts of the history, excluding context and queries
       const historyForApi = messages.map(({ role, content }) => ({ role, content }));
-      
-      const result = await mainAssistant({ 
-        question: values.question, 
-        history: historyForApi
+
+      const response = await fetch('/api/main-assistant', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          question: values.question,
+          history: historyForApi,
+        }),
       });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error ?? 'Failed to fetch assistant response.');
+      }
 
       console.log('[AskAiPanel] Result from mainAssistant:', result); // <--- HIER
 
