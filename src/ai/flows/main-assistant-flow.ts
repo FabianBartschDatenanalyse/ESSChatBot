@@ -92,7 +92,12 @@ const mainAssistantFlow = ai.defineFlow(
       output: { schema: ReformulatedQuestionSchema },
     });
 
-    const { reformulatedQuestion, requiresTool } = reformulationResponse.output!;
+    if (!reformulationResponse.output) {
+      console.error('[mainAssistantFlow] Reformulation response missing structured output:', reformulationResponse);
+      throw new Error('Unable to reformulate the question. Please try again.');
+    }
+
+    const { reformulatedQuestion, requiresTool } = reformulationResponse.output;
     console.log('[mainAssistantFlow] Reformulation result:', JSON.stringify({ reformulatedQuestion, requiresTool }, null, 2));
 
     if (!requiresTool) {
@@ -134,7 +139,12 @@ ${retrievedContext}`;
         prompt: statsPrompt,
         output: { schema: StatsExtractionSchema },
       });
-      const plan = statsExtraction.output!;
+
+      if (!statsExtraction.output) {
+        throw new Error('Statistics planning did not return a valid plan.');
+      }
+
+      const plan = statsExtraction.output;
       console.log('[mainAssistantFlow] Stats extraction:', JSON.stringify(plan, null, 2));
 
       // Wenn Regression nötig → direkt statisticsTool ausführen (statisticsTool lädt selbst die Daten via SQL)
@@ -192,6 +202,11 @@ Write a clear, user-friendly answer based on the regression result. If there was
           question: reformulatedQuestion,
           dataPreview: toolOutput.data.slice(0, 20),
         });
+
+        if (!plan) {
+          throw new Error('Visualization tool returned no plan.');
+        }
+
         chartDefinition = {
           ...plan,
           data: toolOutput.data.slice(0, 100),
