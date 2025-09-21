@@ -1,4 +1,3 @@
-'use server';
 /**
  * @fileOverview The main AI assistant agent.
  *
