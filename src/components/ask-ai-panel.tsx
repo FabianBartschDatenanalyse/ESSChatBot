@@ -17,6 +17,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Code2, Database } from 'lucide-react';
 import Logo from '@/src/components/logo';
 import { ChatVisualization } from '@/src/components/chat-visualization';
+import type { MainAssistantOutput } from '@/src/ai/flows/main-assistant-flow';
 
 const formSchema = z.object({
   question: z.string().min(1, 'Question cannot be empty.'),
@@ -26,6 +27,8 @@ interface AskAiPanelProps {
   conversation: Conversation;
   onMessagesUpdate: (conversationId: string, messages: Message[]) => void;
 }
+
+type AssistantResponse = MainAssistantOutput & { error?: string };
 
 export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPanelProps) {
   const [isLoading, setIsLoading] = useState(false);
@@ -64,20 +67,40 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
         }),
       });
 
-      const result = await response.json();
+      const responseText = await response.text();
+      let result: AssistantResponse | { error?: string } | null = null;
 
-      if (!response.ok) {
-        throw new Error(result?.error ?? 'Failed to fetch assistant response.');
+      if (responseText) {
+        try {
+          result = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error('[AskAiPanel] Failed to parse assistant response as JSON:', parseError, responseText);
+          throw new Error('Received an invalid response from the assistant service.');
+        }
       }
 
-      console.log('[AskAiPanel] Result from mainAssistant:', result); // <--- HIER
+      if (!response.ok) {
+        throw new Error(result?.error ?? `Failed to fetch assistant response. (status ${response.status})`);
+      }
+
+      if (!result || typeof result !== 'object') {
+        throw new Error('Assistant response was empty. Please try again.');
+      }
+
+      if (!('answer' in result) || typeof result.answer !== 'string') {
+        throw new Error('Assistant response was missing the final answer.');
+      }
+
+      const typedResult = result as AssistantResponse;
+
+      console.log('[AskAiPanel] Result from mainAssistant:', typedResult); // <--- HIER
 
       const assistantMessage: Message = {
         role: 'assistant',
-        content: result.answer,
-        sqlQuery: result.sqlQuery,
-        retrievedContext: result.retrievedContext,
-        chart: result.chart,
+        content: typedResult.answer,
+        sqlQuery: typedResult.sqlQuery,
+        retrievedContext: typedResult.retrievedContext,
+        chart: typedResult.chart,
       };
       
       const finalMessages = [...newMessages, assistantMessage];
