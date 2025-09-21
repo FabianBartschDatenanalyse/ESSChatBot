@@ -117,6 +117,7 @@ const LINE_COLOR: RGBA = [220, 38, 38, 255];
 const POINT_COLOR: RGBA = [34, 197, 94, 255];
 const TEXT_COLOR: RGBA = [30, 41, 59, 255];
 const VALUE_TEXT_COLOR: RGBA = [15, 23, 42, 255];
+const FONT_FAMILY = 'DejaVu Sans';
 
 const FONT_WIDTH = 5;
 const FONT_HEIGHT = 7;
@@ -1725,8 +1726,6 @@ const chartToolInternal = ai.defineTool(
         typeof resolvedTitle === 'string'
           ? { text: resolvedTitle }
           : resolvedTitle;
-
-      const FONT_FAMILY = 'DejaVu Sans';
 
       const vegaLiteSpec: any = {
         $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
