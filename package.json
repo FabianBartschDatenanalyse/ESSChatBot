@@ -3,15 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node ./node_modules/next/dist/bin/next dev",
+    "predev": "node ./scripts/ensure-dev-deps.cjs",
+    "dev": "next dev --port 9002 --hostname 0.0.0.0",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
     "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
-    "build": "node ./node_modules/next/dist/bin/next build",
-    "start": "node ./node_modules/next/dist/bin/next start",
-    "lint": "node ./node_modules/next/dist/bin/next lint",
+    "prebuild": "node ./scripts/ensure-dev-deps.cjs",
+    "build": "next build",
+    "prestart": "node ./scripts/ensure-dev-deps.cjs",
+    "start": "next start",
+    "prelint": "node ./scripts/ensure-dev-deps.cjs",
+    "lint": "next lint",
+    "pretypecheck": "node ./scripts/ensure-dev-deps.cjs",
     "typecheck": "tsc --noEmit",
+    "preembed": "node ./scripts/ensure-dev-deps.cjs",
     "embed": "tsx src/scripts/embed-codebook.ts",
-    "test": "vitest"
+    "pretest": "node ./scripts/ensure-dev-deps.cjs",
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@hookform/resolvers": "^4.1.3",
