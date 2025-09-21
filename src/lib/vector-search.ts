@@ -5,14 +5,23 @@ import { supabase } from '@/src/lib/supabase'; // Use the public (anon) client
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-if (!OPENAI_API_KEY) {
-  throw new Error('Missing OPENAI_API_KEY environment variable');
-}
+let embeddings: OpenAIEmbeddings | null = null;
 
-const embeddings = new OpenAIEmbeddings({
-  openAIApiKey: OPENAI_API_KEY,
-  model: 'text-embedding-3-small',
-});
+const getEmbeddings = () => {
+  if (!OPENAI_API_KEY) {
+    console.error('Missing OPENAI_API_KEY environment variable. Vector search will be disabled.');
+    return null;
+  }
+
+  if (!embeddings) {
+    embeddings = new OpenAIEmbeddings({
+      openAIApiKey: OPENAI_API_KEY,
+      model: 'text-embedding-3-small',
+    });
+  }
+
+  return embeddings;
+};
 
 /**
  * Searches the codebook for the most relevant sections to a given query.
@@ -25,10 +34,15 @@ export async function searchCodebook(query: string, matchCount: number): Promise
     console.error('Supabase client not initialized. Cannot perform vector search.');
     return [];
   }
-  
+
+  const embeddingsClient = getEmbeddings();
+  if (!embeddingsClient) {
+    return [];
+  }
+
   try {
     // 1. Create an embedding for the user's query
-    const queryEmbedding = await embeddings.embedQuery(query);
+    const queryEmbedding = await embeddingsClient.embedQuery(query);
 
     // 2. Query Supabase for matching documents
     const { data, error } = await supabase.rpc('match_documents', {
