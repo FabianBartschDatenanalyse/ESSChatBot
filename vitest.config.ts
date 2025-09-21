@@ -13,6 +13,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname),
+      canvas: path.resolve(__dirname, 'test/mocks/canvas.ts'),
     },
   },
 });
