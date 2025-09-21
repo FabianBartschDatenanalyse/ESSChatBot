@@ -9,6 +9,7 @@ import { executeQuery } from '@/src/lib/data-service';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { createCanvas, registerFont } from 'canvas';
 import {
   NEVER_NUMERIC,
   buildBarChartEntries,
@@ -118,9 +119,8 @@ const POINT_COLOR: RGBA = [34, 197, 94, 255];
 const TEXT_COLOR: RGBA = [30, 41, 59, 255];
 const VALUE_TEXT_COLOR: RGBA = [15, 23, 42, 255];
 const FONT_FAMILY = 'DejaVu Sans';
-
-const FONT_WIDTH = 5;
-const FONT_HEIGHT = 7;
+const BASE_FONT_SIZE = 14;
+const LINE_HEIGHT_MULTIPLIER = 1.25;
 
 const TITLE_FONT_SCALE = 3;
 const SUBTITLE_FONT_SCALE = 2;
@@ -129,77 +129,142 @@ const AXIS_TICK_FONT_SCALE = 1.6;
 const CATEGORY_LABEL_FONT_SCALE = 1.6;
 const VALUE_LABEL_FONT_SCALE = 1.6;
 
-const AXIS_TICK_PADDING_X = 12 + AXIS_TICK_FONT_SCALE * 6;
-const AXIS_TICK_PADDING_Y = 24 + AXIS_TICK_FONT_SCALE * FONT_HEIGHT;
-const CATEGORY_LABEL_PADDING = 28 + CATEGORY_LABEL_FONT_SCALE * FONT_HEIGHT;
-const AXIS_TITLE_PADDING_BOTTOM = CATEGORY_LABEL_PADDING + CATEGORY_LABEL_FONT_SCALE * FONT_HEIGHT + 16;
-const AXIS_TITLE_PADDING_TOP = 32;
-const VALUE_LABEL_VERTICAL_GAP = 12 + VALUE_LABEL_FONT_SCALE * 2;
-const VALUE_LABEL_HORIZONTAL_GAP = 12 + VALUE_LABEL_FONT_SCALE * 4;
-const POINT_VALUE_LABEL_GAP = 14 + VALUE_LABEL_FONT_SCALE * 2;
-const POINT_RADIUS = 5;
+function computeFontSize(scale: number) {
+  return Math.max(8, Math.round(BASE_FONT_SIZE * scale));
+}
 
-const FONT_5X7: Record<string, string[]> = {
-  ' ': ['     ', '     ', '     ', '     ', '     ', '     ', '     '],
-  '!': ['  #  ', '  #  ', '  #  ', '  #  ', '  #  ', '     ', '  #  '],
-  '"': [' # # ', ' # # ', ' # # ', '     ', '     ', '     ', '     '],
-  '#': [' # # ', '#####', ' # # ', ' # # ', '#####', ' # # ', '     '],
-  '$': [' ### ', '# #  ', '#    ', ' ### ', '   # ', '# #  ', ' ### '],
-  '%': ['#   #', '   # ', '  #  ', ' #   ', '#   #', '     ', '     '],
-  '&': [' ##  ', '#  # ', '# #  ', ' ## #', '#  # ', '#  # ', ' ## #'],
-  '\'': ['  #  ', '  #  ', ' #   ', '     ', '     ', '     ', '     '],
-  '(': ['   # ', '  #  ', ' #   ', ' #   ', ' #   ', '  #  ', '   # '],
-  ')': [' #   ', '  #  ', '   # ', '   # ', '   # ', '  #  ', ' #   '],
-  '*': ['     ', ' # # ', '  #  ', '#####', '  #  ', ' # # ', '     '],
-  '+': ['     ', '  #  ', '  #  ', '#####', '  #  ', '  #  ', '     '],
-  ',': ['     ', '     ', '     ', '     ', '  ## ', '  #  ', ' #   '],
-  '-': ['     ', '     ', '     ', ' ### ', '     ', '     ', '     '],
-  '.': ['     ', '     ', '     ', '     ', '     ', ' ### ', ' ### '],
-  '/': ['    #', '   # ', '   # ', '  #  ', ' #   ', '#    ', '#    '],
-  '0': [' ### ', '#  ##', '# # #', '# # #', '##  #', '#   #', ' ### '],
-  '1': ['  #  ', ' ##  ', '  #  ', '  #  ', '  #  ', '  #  ', ' ### '],
-  '2': [' ### ', '#   #', '    #', '   # ', '  #  ', ' #   ', '#####'],
-  '3': [' ### ', '#   #', '    #', ' ### ', '    #', '#   #', ' ### '],
-  '4': ['   # ', '  ## ', ' # # ', '#  # ', '#####', '   # ', '   # '],
-  '5': ['#####', '#    ', '#    ', '#### ', '    #', '#   #', ' ### '],
-  '6': [' ### ', '#   #', '#    ', '#### ', '#   #', '#   #', ' ### '],
-  '7': ['#####', '    #', '   # ', '  #  ', '  #  ', '  #  ', '  #  '],
-  '8': [' ### ', '#   #', '#   #', ' ### ', '#   #', '#   #', ' ### '],
-  '9': [' ### ', '#   #', '#   #', ' ####', '    #', '#   #', ' ### '],
-  ':': ['     ', ' ### ', ' ### ', '     ', ' ### ', ' ### ', '     '],
-  ';': ['     ', ' ### ', ' ### ', '     ', '  ## ', '  #  ', ' #   '],
-  '<': ['   # ', '  #  ', ' #   ', '#    ', ' #   ', '  #  ', '   # '],
-  '=': ['     ', '#####', '     ', '#####', '     ', '#####', '     '],
-  '>': [' #   ', '  #  ', '   # ', '    #', '   # ', '  #  ', ' #   '],
-  '?': [' ### ', '#   #', '    #', '   # ', '  #  ', '     ', '  #  '],
-  '@': [' ### ', '#   #', '# # #', '# ## ', '#    ', '#   #', ' ### '],
-  'A': ['  #  ', ' # # ', '#   #', '#   #', '#####', '#   #', '#   #'],
-  'B': ['#### ', '#   #', '#   #', '#### ', '#   #', '#   #', '#### '],
-  'C': [' ### ', '#   #', '#    ', '#    ', '#    ', '#   #', ' ### '],
-  'D': ['#### ', '#   #', '#   #', '#   #', '#   #', '#   #', '#### '],
-  'E': ['#####', '#    ', '#    ', '#### ', '#    ', '#    ', '#####'],
-  'F': ['#####', '#    ', '#    ', '#### ', '#    ', '#    ', '#    '],
-  'G': [' ### ', '#   #', '#    ', '# ###', '#   #', '#   #', ' ### '],
-  'H': ['#   #', '#   #', '#   #', '#####', '#   #', '#   #', '#   #'],
-  'I': [' ### ', '  #  ', '  #  ', '  #  ', '  #  ', '  #  ', ' ### '],
-  'J': ['  ###', '   # ', '   # ', '   # ', '#  # ', '#  # ', ' ##  '],
-  'K': ['#   #', '#  # ', '# #  ', '##   ', '# #  ', '#  # ', '#   #'],
-  'L': ['#    ', '#    ', '#    ', '#    ', '#    ', '#    ', '#####'],
-  'M': ['#   #', '## ##', '# # #', '# # #', '#   #', '#   #', '#   #'],
-  'N': ['#   #', '##  #', '# # #', '#  ##', '#   #', '#   #', '#   #'],
-  'O': [' ### ', '#   #', '#   #', '#   #', '#   #', '#   #', ' ### '],
-  'P': ['#### ', '#   #', '#   #', '#### ', '#    ', '#    ', '#    '],
-  'Q': [' ### ', '#   #', '#   #', '#   #', '# # #', '#  # ', ' ## #'],
-  'R': ['#### ', '#   #', '#   #', '#### ', '# #  ', '#  # ', '#   #'],
-  'S': [' ### ', '#   #', '#    ', ' ### ', '    #', '#   #', ' ### '],
-  'T': ['#####', '  #  ', '  #  ', '  #  ', '  #  ', '  #  ', '  #  '],
-  'U': ['#   #', '#   #', '#   #', '#   #', '#   #', '#   #', ' ### '],
-  'V': ['#   #', '#   #', '#   #', '#   #', '#   #', ' # # ', '  #  '],
-  'W': ['#   #', '#   #', '#   #', '# # #', '# # #', '## ##', '#   #'],
-  'X': ['#   #', '#   #', ' # # ', '  #  ', ' # # ', '#   #', '#   #'],
-  'Y': ['#   #', '#   #', ' # # ', '  #  ', '  #  ', '  #  ', '  #  '],
-  'Z': ['#####', '    #', '   # ', '  #  ', ' #   ', '#    ', '#####'],
-};
+function computeLineHeight(scale: number) {
+  return Math.max(10, Math.round(computeFontSize(scale) * LINE_HEIGHT_MULTIPLIER));
+}
+
+const AXIS_TICK_PADDING_X = 16;
+const AXIS_TICK_PADDING_Y = 16 + computeLineHeight(AXIS_TICK_FONT_SCALE);
+const CATEGORY_LABEL_PADDING = 24 + computeLineHeight(CATEGORY_LABEL_FONT_SCALE);
+const AXIS_TITLE_PADDING_BOTTOM =
+  CATEGORY_LABEL_PADDING + computeLineHeight(CATEGORY_LABEL_FONT_SCALE) + 20;
+const AXIS_TITLE_PADDING_TOP = 36;
+const VALUE_LABEL_VERTICAL_GAP = 16 + Math.round(computeFontSize(VALUE_LABEL_FONT_SCALE) * 0.7);
+const VALUE_LABEL_HORIZONTAL_GAP = 18 + Math.round(computeFontSize(VALUE_LABEL_FONT_SCALE) * 0.8);
+const POINT_VALUE_LABEL_GAP = 20 + Math.round(computeFontSize(VALUE_LABEL_FONT_SCALE) * 0.7);
+const POINT_RADIUS = 6;
+
+let fontsRegistered = false;
+let measurementCanvas: ReturnType<typeof createCanvas> | null = null;
+
+function ensureCanvasFonts() {
+  if (fontsRegistered) return;
+  const fontDir = path.join(process.cwd(), 'public', 'fonts');
+  const fontDefinitions: { file: string; options?: Parameters<typeof registerFont>[1] }[] = [
+    { file: 'DejaVuSans.ttf', options: { family: FONT_FAMILY } },
+    { file: 'DejaVuSans-Bold.ttf', options: { family: FONT_FAMILY, weight: 'bold' } },
+  ];
+
+  fontDefinitions.forEach(({ file, options }) => {
+    const filePath = path.join(fontDir, file);
+    try {
+      registerFont(filePath, options as any);
+    } catch (error) {
+      console.warn(`Konnte Schriftart nicht registrieren: ${filePath}`, error);
+    }
+  });
+
+  fontsRegistered = true;
+}
+
+function getMeasurementContext(fontSize: number) {
+  ensureCanvasFonts();
+  if (!measurementCanvas) {
+    measurementCanvas = createCanvas(1, 1);
+  }
+  const ctx = measurementCanvas.getContext('2d');
+  ctx.font = `${fontSize}px "${FONT_FAMILY}"`;
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  return ctx;
+}
+
+function rgbaToCss(color: RGBA) {
+  const alpha = (color[3] ?? 255) / 255;
+  return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`;
+}
+
+function drawText(
+  buffer: PixelBuffer,
+  x: number,
+  y: number,
+  rawText: string,
+  color: RGBA,
+  scale = 1,
+  align: 'left' | 'center' | 'right' = 'left',
+  baseline: 'top' | 'middle' | 'bottom' = 'top',
+  fontWeight: 'normal' | 'bold' = 'normal',
+) {
+  const text = sanitizeLabel(rawText);
+  if (!text) return;
+
+  const fontSize = computeFontSize(scale);
+  const measurementContext = getMeasurementContext(fontSize);
+  measurementContext.font = `${fontWeight} ${fontSize}px "${FONT_FAMILY}"`;
+  const metrics = measurementContext.measureText(text);
+  const ascent = metrics.actualBoundingBoxAscent || fontSize * 0.8;
+  const descent = metrics.actualBoundingBoxDescent || fontSize * 0.25;
+  const measuredWidth = Math.ceil(
+    Math.max(metrics.width, metrics.actualBoundingBoxRight + metrics.actualBoundingBoxLeft),
+  );
+  const width = Math.max(1, measuredWidth);
+  const height = Math.max(1, Math.ceil(ascent + descent));
+
+  const textCanvas = createCanvas(width, height);
+  const textContext = textCanvas.getContext('2d');
+  textContext.antialias = 'subpixel';
+  textContext.font = `${fontWeight} ${fontSize}px "${FONT_FAMILY}"`;
+  textContext.fillStyle = rgbaToCss(color);
+  textContext.textBaseline = 'top';
+  textContext.textAlign = 'left';
+  textContext.fillText(text, 0, Math.max(0, ascent - metrics.actualBoundingBoxAscent));
+
+  const imageData = textContext.getImageData(0, 0, width, height);
+
+  let startX = x;
+  if (align === 'center') startX = x - width / 2;
+  else if (align === 'right') startX = x - width;
+
+  let startY = y;
+  if (baseline === 'middle') startY = y - height / 2;
+  else if (baseline === 'bottom') startY = y - height;
+
+  blitImageData(buffer, imageData, startX, startY);
+}
+
+function blitImageData(buffer: PixelBuffer, imageData: ImageData, destX: number, destY: number) {
+  const { data, width, height } = imageData;
+  const startX = Math.round(destX);
+  const startY = Math.round(destY);
+
+  for (let row = 0; row < height; row++) {
+    const targetY = startY + row;
+    if (targetY < 0 || targetY >= buffer.height) continue;
+    for (let col = 0; col < width; col++) {
+      const targetX = startX + col;
+      if (targetX < 0 || targetX >= buffer.width) continue;
+      const srcIdx = (row * width + col) * 4;
+      const alpha = data[srcIdx + 3] / 255;
+      if (alpha <= 0) continue;
+      const dstIdx = (targetY * buffer.width + targetX) * 4;
+      const invAlpha = 1 - alpha;
+      buffer.data[dstIdx] = Math.round(data[srcIdx] * alpha + buffer.data[dstIdx] * invAlpha);
+      buffer.data[dstIdx + 1] = Math.round(data[srcIdx + 1] * alpha + buffer.data[dstIdx + 1] * invAlpha);
+      buffer.data[dstIdx + 2] = Math.round(data[srcIdx + 2] * alpha + buffer.data[dstIdx + 2] * invAlpha);
+      buffer.data[dstIdx + 3] = 255;
+    }
+  }
+}
+
+function shortenLabel(label: string, maxLength = 16) {
+  if (!label) return '';
+  if (label.length <= maxLength) return label;
+  return `${label.slice(0, Math.max(0, maxLength - 3))}...`;
+}
 
 /** ------------------------------
  *  CHART-PLANNER SCHEMA (bestehend)
@@ -507,6 +572,7 @@ function renderBarChartFallback(
         VALUE_LABEL_FONT_SCALE,
         'center',
         'bottom',
+        'bold',
       );
       drawText(
         buffer,
@@ -531,6 +597,7 @@ function renderBarChartFallback(
         VALUE_LABEL_FONT_SCALE,
         'left',
         'middle',
+        'bold',
       );
       drawText(
         buffer,
@@ -824,6 +891,7 @@ function renderLineChartFallback(
       VALUE_LABEL_FONT_SCALE,
       'center',
       'bottom',
+      'bold',
     );
   });
 
@@ -872,12 +940,12 @@ function drawTitle(buffer: PixelBuffer, rawTitle: any) {
   const normalizedSubtitle = sanitizeLabel(subtitle ?? '');
 
   if (normalizedTitle) {
-    const titleY = 36;
-    drawText(buffer, width / 2, titleY, normalizedTitle, TEXT_COLOR, TITLE_FONT_SCALE, 'center', 'middle');
+    const titleY = 40;
+    drawText(buffer, width / 2, titleY, normalizedTitle, TEXT_COLOR, TITLE_FONT_SCALE, 'center', 'middle', 'bold');
   }
   if (normalizedSubtitle) {
-    const subtitleY =
-      36 + TITLE_FONT_SCALE * FONT_HEIGHT + 16;
+    const titleFontSize = computeFontSize(TITLE_FONT_SCALE);
+    const subtitleY = 40 + Math.round(titleFontSize * 0.9) + 12;
     drawText(buffer, width / 2, subtitleY, normalizedSubtitle, TEXT_COLOR, SUBTITLE_FONT_SCALE, 'center', 'middle');
   }
 }
@@ -965,69 +1033,6 @@ function drawCircle(buffer: PixelBuffer, cx: number, cy: number, radius: number,
       }
     }
   }
-}
-
-function drawText(
-  buffer: PixelBuffer,
-  x: number,
-  y: number,
-  rawText: string,
-  color: RGBA,
-  scale = 1,
-  align: 'left' | 'center' | 'right' = 'left',
-  baseline: 'top' | 'middle' | 'bottom' = 'top',
-) {
-  const text = sanitizeLabel(rawText);
-  if (!text) return;
-
-  const glyphHeight = FONT_HEIGHT * scale;
-  const spacing = scale;
-  const totalWidth = measureText(text, scale);
-
-  let startX = x;
-  if (align === 'center') startX = x - totalWidth / 2;
-  else if (align === 'right') startX = x - totalWidth;
-
-  let startY = y;
-  if (baseline === 'middle') startY = y - glyphHeight / 2;
-  else if (baseline === 'bottom') startY = y - glyphHeight;
-
-  let cursorX = startX;
-  for (const char of text) {
-    const glyph = FONT_5X7[char] ?? FONT_5X7['?'] ?? FONT_5X7[' '];
-    for (let rowIdx = 0; rowIdx < glyph.length; rowIdx++) {
-      const row = glyph[rowIdx];
-      for (let colIdx = 0; colIdx < row.length; colIdx++) {
-        if (row[colIdx] === '#') {
-          fillRect(
-            buffer,
-            cursorX + colIdx * scale,
-            startY + rowIdx * scale,
-            scale,
-            scale,
-            color,
-          );
-        }
-      }
-    }
-    cursorX += glyph[0].length * scale + spacing;
-  }
-}
-
-function measureText(text: string, scale: number) {
-  if (!text) return 0;
-  let width = 0;
-  for (const char of text) {
-    const glyph = FONT_5X7[char] ?? FONT_5X7['?'] ?? FONT_5X7[' '];
-    width += glyph[0].length * scale + scale;
-  }
-  return Math.max(0, width - scale);
-}
-
-function shortenLabel(label: string, maxLength = 16) {
-  if (!label) return '';
-  if (label.length <= maxLength) return label;
-  return `${label.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
 function computeNiceStep(range: number, tickCount: number) {
