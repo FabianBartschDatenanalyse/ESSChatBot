@@ -25,13 +25,13 @@ const MessageSchema = z.object({
   content: z.string(),
 });
 
-const MainAssistantInputSchema = z.object({
+export const MainAssistantInputSchema = z.object({
   question: z.string().describe("The user's current question."),
   history: z.array(MessageSchema).optional().describe("The conversation history."),
 });
 export type MainAssistantInput = z.infer<typeof MainAssistantInputSchema>;
 
-const MainAssistantOutputSchema = z.object({
+export const MainAssistantOutputSchema = z.object({
   answer: z.string().describe('The final answer to be displayed to the user.'),
   sqlQuery: z.string().optional().describe('The SQL query that was executed.'),
   retrievedContext: z.string().optional().describe('The context retrieved from the vector database.'),
