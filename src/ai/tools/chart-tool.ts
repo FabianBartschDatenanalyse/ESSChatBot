@@ -465,13 +465,45 @@ const applyDefaultAxisDomain = (channel: any, field?: string) => {
   }
 };
 
+const FALLBACK_PLACEHOLDER_BACKGROUND = '#f8fafc';
+const FALLBACK_PLACEHOLDER_PRIMARY = '#0f172a';
+const FALLBACK_PLACEHOLDER_SECONDARY = '#64748b';
+
+function escapeSvgText(text: string) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderMissingCanvasPlaceholder(spec: any, width: number, height: number) {
+  const title = typeof spec?.title === 'string' ? spec.title.trim() : '';
+  const subtitle = 'Chart rendering temporarily unavailable';
+  const detail = 'Server is missing optional "canvas" dependency.';
+
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <rect width="100%" height="100%" fill="${FALLBACK_PLACEHOLDER_BACKGROUND}" rx="24" />
+  <g fill="${FALLBACK_PLACEHOLDER_PRIMARY}" text-anchor="middle" font-family="'DejaVu Sans','Segoe UI',sans-serif">
+    <text x="50%" y="40%" font-size="22" font-weight="600">${escapeSvgText(title || 'Visualization unavailable')}</text>
+    <text x="50%" y="52%" font-size="16" fill="${FALLBACK_PLACEHOLDER_SECONDARY}">${escapeSvgText(subtitle)}</text>
+    <text x="50%" y="62%" font-size="14" fill="${FALLBACK_PLACEHOLDER_SECONDARY}">${escapeSvgText(detail)}</text>
+  </g>
+</svg>`;
+
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+}
+
 async function renderWithFallback(spec: any): Promise<string> {
-  const prepared = await prepareCanvas();
-  if (!prepared || !createCanvasImpl) {
-    throw new Error('Fallback-Renderer benötigt ein installiertes "canvas"-Modul.');
-  }
   const width = clampNumber(Number(spec?.width) || 720, 320, 1600);
   const height = clampNumber(Number(spec?.height) || 420, 240, 1200);
+
+  const prepared = await prepareCanvas();
+  if (!prepared || !createCanvasImpl) {
+    return renderMissingCanvasPlaceholder(spec, width, height);
+  }
   const dataValues = Array.isArray(spec?.data?.values) ? spec.data.values : [];
   if (!dataValues.length) {
     throw new Error('Fallback renderer benötigt Datenwerte.');
