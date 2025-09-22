@@ -9,7 +9,6 @@ import { executeQuery } from '@/src/lib/data-service';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { createCanvas, registerFont } from 'canvas';
 import {
   NEVER_NUMERIC,
   buildBarChartEntries,
@@ -148,13 +147,62 @@ const VALUE_LABEL_HORIZONTAL_GAP = 18 + Math.round(computeFontSize(VALUE_LABEL_F
 const POINT_VALUE_LABEL_GAP = 20 + Math.round(computeFontSize(VALUE_LABEL_FONT_SCALE) * 0.7);
 const POINT_RADIUS = 6;
 
+type CanvasModule = typeof import('canvas');
+type NodeCanvas = ReturnType<CanvasModule['createCanvas']>;
+
+let createCanvasImpl: CanvasModule['createCanvas'] | null = null;
+let registerFontImpl: CanvasModule['registerFont'] | null = null;
 let fontsRegistered = false;
-let measurementCanvas: ReturnType<typeof createCanvas> | null = null;
+let measurementCanvas: NodeCanvas | null = null;
+let canvasLoadAttempted = false;
+
+async function ensureCanvasModule(): Promise<boolean> {
+  if (createCanvasImpl && registerFontImpl) {
+    return true;
+  }
+
+  if (canvasLoadAttempted && (!createCanvasImpl || !registerFontImpl)) {
+    return false;
+  }
+  canvasLoadAttempted = true;
+
+  const canvasModule = await tryImport('canvas');
+  if (!canvasModule) {
+    return false;
+  }
+
+  const resolved: Partial<CanvasModule> & { default?: Partial<CanvasModule> } =
+    (canvasModule as any)?.default ? (canvasModule as any).default : (canvasModule as any);
+  const create = resolved.createCanvas;
+  const register = resolved.registerFont;
+
+  if (typeof create === 'function' && typeof register === 'function') {
+    createCanvasImpl = create as CanvasModule['createCanvas'];
+    registerFontImpl = register as CanvasModule['registerFont'];
+    return true;
+  }
+
+  return false;
+}
+
+async function prepareCanvas(): Promise<boolean> {
+  const hasCanvas = await ensureCanvasModule();
+  if (!hasCanvas) {
+    return false;
+  }
+
+  ensureCanvasFonts();
+  return true;
+}
 
 function ensureCanvasFonts() {
   if (fontsRegistered) return;
+  if (!registerFontImpl) {
+    console.warn('Konnte Schriftarten nicht registrieren: Canvas-Modul nicht verfügbar.');
+    return;
+  }
   const fontDir = path.join(process.cwd(), 'public', 'fonts');
-  const fontDefinitions: { file: string; options?: Parameters<typeof registerFont>[1] }[] = [
+  const fontDefinitions: { file: string; options?: Parameters<CanvasModule['registerFont']>[1] }[] = [
     { file: 'DejaVuSans.ttf', options: { family: FONT_FAMILY } },
     { file: 'DejaVuSans-Bold.ttf', options: { family: FONT_FAMILY, weight: 'bold' } },
   ];
@@ -162,7 +210,7 @@ function ensureCanvasFonts() {
   fontDefinitions.forEach(({ file, options }) => {
     const filePath = path.join(fontDir, file);
     try {
-      registerFont(filePath, options as any);
+      registerFontImpl(filePath, options as any);
     } catch (error) {
       console.warn(`Konnte Schriftart nicht registrieren: ${filePath}`, error);
     }
@@ -173,8 +221,11 @@ function ensureCanvasFonts() {
 
 function getMeasurementContext(fontSize: number) {
   ensureCanvasFonts();
+  if (!createCanvasImpl) {
+    throw new Error('Canvas-Modul nicht verfügbar.');
+  }
   if (!measurementCanvas) {
-    measurementCanvas = createCanvas(1, 1);
+    measurementCanvas = createCanvasImpl(1, 1);
   }
   const ctx = measurementCanvas.getContext('2d');
   ctx.font = `${fontSize}px "${FONT_FAMILY}"`;
@@ -214,7 +265,11 @@ function drawText(
   const width = Math.max(1, measuredWidth);
   const height = Math.max(1, Math.ceil(ascent + descent));
 
-  const textCanvas = createCanvas(width, height);
+  if (!createCanvasImpl) {
+    console.warn('Canvas-Modul nicht verfügbar, Text kann nicht gezeichnet werden.');
+    return;
+  }
+  const textCanvas = createCanvasImpl(width, height);
   const textContext = textCanvas.getContext('2d');
   textContext.antialias = 'subpixel';
   textContext.font = `${fontWeight} ${fontSize}px "${FONT_FAMILY}"`;
@@ -410,7 +465,11 @@ const applyDefaultAxisDomain = (channel: any, field?: string) => {
   }
 };
 
-function renderWithFallback(spec: any): string {
+async function renderWithFallback(spec: any): Promise<string> {
+  const prepared = await prepareCanvas();
+  if (!prepared || !createCanvasImpl) {
+    throw new Error('Fallback-Renderer benötigt ein installiertes "canvas"-Modul.');
+  }
   const width = clampNumber(Number(spec?.width) || 720, 320, 1600);
   const height = clampNumber(Number(spec?.height) || 420, 240, 1200);
   const dataValues = Array.isArray(spec?.data?.values) ? spec.data.values : [];
