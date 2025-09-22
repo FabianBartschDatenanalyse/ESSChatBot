@@ -91,6 +91,14 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
         throw new Error('Assistant response was empty. Please try again.');
       }
 
+      if ('error' in result && result.error) {
+        const message =
+          typeof result.error === 'string'
+            ? result.error
+            : 'Assistant service reported an unknown error.';
+        throw new Error(message);
+      }
+
       if (!('answer' in result) || typeof result.answer !== 'string') {
         throw new Error('Assistant response was missing the final answer.');
       }
