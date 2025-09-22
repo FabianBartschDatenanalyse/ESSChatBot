@@ -49,6 +49,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
     const userMessage: Message = { role: 'user', content: values.question };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
+    onMessagesUpdate(conversation.id, newMessages);
     setIsLoading(true);
     form.reset();
 
@@ -121,7 +122,9 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
 
     } catch (error) {
       console.error(error);
-      const errorMessage: Message = { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' };
+      const fallbackError = 'Sorry, I encountered an error. Please try again.';
+      const errorText = error instanceof Error && error.message ? error.message : fallbackError;
+      const errorMessage: Message = { role: 'assistant', content: errorText };
       const finalMessages = [...newMessages, errorMessage];
       setMessages(finalMessages);
       onMessagesUpdate(conversation.id, finalMessages);
