@@ -147,96 +147,168 @@ const VALUE_LABEL_HORIZONTAL_GAP = 18 + Math.round(computeFontSize(VALUE_LABEL_F
 const POINT_VALUE_LABEL_GAP = 20 + Math.round(computeFontSize(VALUE_LABEL_FONT_SCALE) * 0.7);
 const POINT_RADIUS = 6;
 
-type CanvasModule = typeof import('canvas');
-type NodeCanvas = ReturnType<CanvasModule['createCanvas']>;
+const SIMPLE_FONT_HEIGHT = 8;
+const SIMPLE_FONT_BASELINE = 7;
+const SIMPLE_FONT_SPACING = 1;
 
-let createCanvasImpl: CanvasModule['createCanvas'] | null = null;
-let registerFontImpl: CanvasModule['registerFont'] | null = null;
-let fontsRegistered = false;
-let measurementCanvas: NodeCanvas | null = null;
-let canvasLoadAttempted = false;
+type SimpleGlyph = string[];
 
-async function ensureCanvasModule(): Promise<boolean> {
-  if (createCanvasImpl && registerFontImpl) {
-    return true;
-  }
+const SPACE_GLYPH: SimpleGlyph = ['000', '000', '000', '000', '000', '000', '000', '000'];
+const FALLBACK_GLYPH: SimpleGlyph = [
+  '11110',
+  '00001',
+  '00010',
+  '00100',
+  '00100',
+  '00000',
+  '00100',
+  '00000',
+];
 
-  if (canvasLoadAttempted && (!createCanvasImpl || !registerFontImpl)) {
-    return false;
-  }
-  canvasLoadAttempted = true;
+const SIMPLE_FONT: Record<string, SimpleGlyph> = {
+  ' ': SPACE_GLYPH,
+  A: ['00100', '01010', '10001', '10001', '11111', '10001', '10001', '00000'],
+  B: ['11110', '10001', '10001', '11110', '10001', '10001', '11110', '00000'],
+  C: ['01111', '10000', '10000', '10000', '10000', '10000', '01111', '00000'],
+  D: ['11110', '10001', '10001', '10001', '10001', '10001', '11110', '00000'],
+  E: ['11111', '10000', '10000', '11110', '10000', '10000', '11111', '00000'],
+  F: ['11111', '10000', '10000', '11110', '10000', '10000', '10000', '00000'],
+  G: ['01111', '10000', '10000', '10011', '10001', '10001', '01111', '00000'],
+  H: ['10001', '10001', '10001', '11111', '10001', '10001', '10001', '00000'],
+  I: ['01110', '00100', '00100', '00100', '00100', '00100', '01110', '00000'],
+  J: ['00111', '00010', '00010', '00010', '10010', '10010', '01100', '00000'],
+  K: ['10001', '10010', '10100', '11000', '10100', '10010', '10001', '00000'],
+  L: ['10000', '10000', '10000', '10000', '10000', '10000', '11111', '00000'],
+  M: ['10001', '11011', '10101', '10101', '10001', '10001', '10001', '00000'],
+  N: ['10001', '10001', '11001', '10101', '10011', '10001', '10001', '00000'],
+  O: ['01110', '10001', '10001', '10001', '10001', '10001', '01110', '00000'],
+  P: ['11110', '10001', '10001', '11110', '10000', '10000', '10000', '00000'],
+  Q: ['01110', '10001', '10001', '10001', '10101', '10010', '01101', '00000'],
+  R: ['11110', '10001', '10001', '11110', '10100', '10010', '10001', '00000'],
+  S: ['01111', '10000', '10000', '01110', '00001', '00001', '11110', '00000'],
+  T: ['11111', '00100', '00100', '00100', '00100', '00100', '00100', '00000'],
+  U: ['10001', '10001', '10001', '10001', '10001', '10001', '01110', '00000'],
+  V: ['10001', '10001', '10001', '10001', '01010', '01010', '00100', '00000'],
+  W: ['10001', '10001', '10001', '10101', '10101', '10101', '01010', '00000'],
+  X: ['10001', '10001', '01010', '00100', '01010', '10001', '10001', '00000'],
+  Y: ['10001', '10001', '01010', '00100', '00100', '00100', '00100', '00000'],
+  Z: ['11111', '00001', '00010', '00100', '01000', '10000', '11111', '00000'],
+  '0': ['01110', '10001', '10011', '10101', '11001', '10001', '01110', '00000'],
+  '1': ['00100', '01100', '00100', '00100', '00100', '00100', '01110', '00000'],
+  '2': ['01110', '10001', '00001', '00010', '00100', '01000', '11111', '00000'],
+  '3': ['11110', '00001', '00001', '00110', '00001', '00001', '11110', '00000'],
+  '4': ['00010', '00110', '01010', '10010', '11111', '00010', '00010', '00000'],
+  '5': ['11111', '10000', '11110', '00001', '00001', '10001', '01110', '00000'],
+  '6': ['00110', '01000', '10000', '11110', '10001', '10001', '01110', '00000'],
+  '7': ['11111', '00001', '00010', '00100', '01000', '01000', '01000', '00000'],
+  '8': ['01110', '10001', '10001', '01110', '10001', '10001', '01110', '00000'],
+  '9': ['01110', '10001', '10001', '01111', '00001', '00010', '01100', '00000'],
+  '-': ['00000', '00000', '00000', '01110', '00000', '00000', '00000', '00000'],
+  '+': ['00000', '00100', '00100', '11111', '00100', '00100', '00000', '00000'],
+  '/': ['00001', '00010', '00100', '01000', '10000', '00000', '00000', '00000'],
+  ':': ['00000', '00110', '00110', '00000', '00110', '00110', '00000', '00000'],
+  ',': ['00000', '00000', '00000', '00000', '01100', '00100', '01000', '00000'],
+  '.': ['00000', '00000', '00000', '00000', '00000', '01100', '01100', '00000'],
+  '%': ['10001', '10010', '00100', '01000', '10010', '10001', '00000', '00000'],
+  '(': ['00010', '00100', '01000', '01000', '01000', '00100', '00010', '00000'],
+  ')': ['01000', '00100', '00010', '00010', '00010', '00100', '01000', '00000'],
+  '\'': ['00100', '00100', '00000', '00000', '00000', '00000', '00000', '00000'],
+  '"': ['01010', '01010', '00000', '00000', '00000', '00000', '00000', '00000'],
+};
 
-  const canvasModule = await tryImport('canvas');
-  if (!canvasModule) {
-    return false;
-  }
+type SimpleImageData = { data: Uint8ClampedArray; width: number; height: number };
 
-  const resolved: Partial<CanvasModule> & { default?: Partial<CanvasModule> } =
-    (canvasModule as any)?.default ? (canvasModule as any).default : (canvasModule as any);
-  const create = resolved.createCanvas;
-  const register = resolved.registerFont;
-
-  if (typeof create === 'function' && typeof register === 'function') {
-    createCanvasImpl = create as CanvasModule['createCanvas'];
-    registerFontImpl = register as CanvasModule['registerFont'];
-    return true;
-  }
-
-  return false;
+interface TextRenderResult {
+  image: SimpleImageData;
+  width: number;
+  height: number;
+  baseline: number;
 }
 
-async function prepareCanvas(): Promise<boolean> {
-  const hasCanvas = await ensureCanvasModule();
-  if (!hasCanvas) {
-    return false;
-  }
-
-  ensureCanvasFonts();
-  return true;
+function normalizeForSimpleFont(text: string) {
+  return text
+    .replace(/ß/g, 'SS')
+    .replace(/[äÄ]/g, 'AE')
+    .replace(/[öÖ]/g, 'OE')
+    .replace(/[üÜ]/g, 'UE');
 }
 
-function ensureCanvasFonts() {
-  if (fontsRegistered) return;
-  if (!registerFontImpl) {
-    console.warn('Konnte Schriftarten nicht registrieren: Canvas-Modul nicht verfügbar.');
-    return;
-  }
-  const fontDir = path.join(process.cwd(), 'public', 'fonts');
-  const fontDefinitions: { file: string; options?: Parameters<CanvasModule['registerFont']>[1] }[] = [
-    { file: 'DejaVuSans.ttf', options: { family: FONT_FAMILY } },
-    { file: 'DejaVuSans-Bold.ttf', options: { family: FONT_FAMILY, weight: 'bold' } },
-  ];
+function getGlyph(char: string): SimpleGlyph {
+  if (!char) return SPACE_GLYPH;
+  const glyph = SIMPLE_FONT[char];
+  if (glyph) return glyph;
+  return FALLBACK_GLYPH;
+}
 
-  fontDefinitions.forEach(({ file, options }) => {
-    const filePath = path.join(fontDir, file);
-    try {
-      registerFontImpl(filePath, options as any);
-    } catch (error) {
-      console.warn(`Konnte Schriftart nicht registrieren: ${filePath}`, error);
+function renderSimpleText(
+  rawText: string,
+  fontSize: number,
+  color: RGBA,
+  weight: 'normal' | 'bold',
+): TextRenderResult | null {
+  if (!rawText) return null;
+  const preprocessed = normalizeForSimpleFont(rawText)
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase();
+  if (!preprocessed.trim()) {
+    return null;
+  }
+
+  const glyphs = Array.from(preprocessed).map((char) => getGlyph(char));
+  const baseWidth = glyphs.reduce((acc, glyph, index) => {
+    const row = glyph[0] ?? '';
+    const width = row.length;
+    if (index < glyphs.length - 1) {
+      return acc + width + SIMPLE_FONT_SPACING;
+    }
+    return acc + width;
+  }, 0);
+
+  const scale = Math.max(1, fontSize) / SIMPLE_FONT_HEIGHT;
+  const width = Math.max(1, Math.round(baseWidth * scale));
+  const height = Math.max(1, Math.round((SIMPLE_FONT_HEIGHT + 1) * scale));
+  const baseline = Math.min(height, Math.round(SIMPLE_FONT_BASELINE * scale));
+
+  const data = new Uint8ClampedArray(width * height * 4);
+  const boldExtra = weight === 'bold' ? 1 : 0;
+
+  let cursor = 0;
+  glyphs.forEach((glyph, glyphIndex) => {
+    const glyphWidth = glyph[0]?.length ?? 0;
+    for (let row = 0; row < glyph.length; row++) {
+      const patternRow = glyph[row];
+      for (let col = 0; col < glyphWidth; col++) {
+        if (patternRow[col] !== '1') continue;
+        const startX = Math.round((cursor + col) * scale);
+        const endX = Math.max(startX + 1, Math.round((cursor + col + 1) * scale) + boldExtra);
+        const startY = Math.round(row * scale);
+        const endY = Math.max(startY + 1, Math.round((row + 1) * scale) + boldExtra);
+        for (let yPos = startY; yPos < endY && yPos < height; yPos++) {
+          if (yPos < 0) continue;
+          for (let xPos = startX; xPos < endX && xPos < width; xPos++) {
+            if (xPos < 0) continue;
+            const idx = (yPos * width + xPos) * 4;
+            data[idx] = color[0];
+            data[idx + 1] = color[1];
+            data[idx + 2] = color[2];
+            data[idx + 3] = color[3] ?? 255;
+          }
+        }
+      }
+    }
+    cursor += glyphWidth;
+    if (glyphIndex < glyphs.length - 1) {
+      cursor += SIMPLE_FONT_SPACING;
     }
   });
 
-  fontsRegistered = true;
-}
-
-function getMeasurementContext(fontSize: number) {
-  ensureCanvasFonts();
-  if (!createCanvasImpl) {
-    throw new Error('Canvas-Modul nicht verfügbar.');
-  }
-  if (!measurementCanvas) {
-    measurementCanvas = createCanvasImpl(1, 1);
-  }
-  const ctx = measurementCanvas.getContext('2d');
-  ctx.font = `${fontSize}px "${FONT_FAMILY}"`;
-  ctx.textBaseline = 'top';
-  ctx.textAlign = 'left';
-  return ctx;
-}
-
-function rgbaToCss(color: RGBA) {
-  const alpha = (color[3] ?? 255) / 255;
-  return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`;
+  return {
+    image: { data, width, height },
+    width,
+    height,
+    baseline,
+  };
 }
 
 function drawText(
@@ -254,31 +326,10 @@ function drawText(
   if (!text) return;
 
   const fontSize = computeFontSize(scale);
-  const measurementContext = getMeasurementContext(fontSize);
-  measurementContext.font = `${fontWeight} ${fontSize}px "${FONT_FAMILY}"`;
-  const metrics = measurementContext.measureText(text);
-  const ascent = metrics.actualBoundingBoxAscent || fontSize * 0.8;
-  const descent = metrics.actualBoundingBoxDescent || fontSize * 0.25;
-  const measuredWidth = Math.ceil(
-    Math.max(metrics.width, metrics.actualBoundingBoxRight + metrics.actualBoundingBoxLeft),
-  );
-  const width = Math.max(1, measuredWidth);
-  const height = Math.max(1, Math.ceil(ascent + descent));
+  const rendered = renderSimpleText(text, fontSize, color, fontWeight);
+  if (!rendered) return;
 
-  if (!createCanvasImpl) {
-    console.warn('Canvas-Modul nicht verfügbar, Text kann nicht gezeichnet werden.');
-    return;
-  }
-  const textCanvas = createCanvasImpl(width, height);
-  const textContext = textCanvas.getContext('2d');
-  textContext.antialias = 'subpixel';
-  textContext.font = `${fontWeight} ${fontSize}px "${FONT_FAMILY}"`;
-  textContext.fillStyle = rgbaToCss(color);
-  textContext.textBaseline = 'top';
-  textContext.textAlign = 'left';
-  textContext.fillText(text, 0, Math.max(0, ascent - metrics.actualBoundingBoxAscent));
-
-  const imageData = textContext.getImageData(0, 0, width, height);
+  const { image, width, height } = rendered;
 
   let startX = x;
   if (align === 'center') startX = x - width / 2;
@@ -288,10 +339,10 @@ function drawText(
   if (baseline === 'middle') startY = y - height / 2;
   else if (baseline === 'bottom') startY = y - height;
 
-  blitImageData(buffer, imageData, startX, startY);
+  blitImageData(buffer, image, startX, startY);
 }
 
-function blitImageData(buffer: PixelBuffer, imageData: ImageData, destX: number, destY: number) {
+function blitImageData(buffer: PixelBuffer, imageData: SimpleImageData, destX: number, destY: number) {
   const { data, width, height } = imageData;
   const startX = Math.round(destX);
   const startY = Math.round(destY);
@@ -314,7 +365,6 @@ function blitImageData(buffer: PixelBuffer, imageData: ImageData, destX: number,
     }
   }
 }
-
 function shortenLabel(label: string, maxLength = 16) {
   if (!label) return '';
   if (label.length <= maxLength) return label;
@@ -465,45 +515,9 @@ const applyDefaultAxisDomain = (channel: any, field?: string) => {
   }
 };
 
-const FALLBACK_PLACEHOLDER_BACKGROUND = '#f8fafc';
-const FALLBACK_PLACEHOLDER_PRIMARY = '#0f172a';
-const FALLBACK_PLACEHOLDER_SECONDARY = '#64748b';
-
-function escapeSvgText(text: string) {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function renderMissingCanvasPlaceholder(spec: any, width: number, height: number) {
-  const title = typeof spec?.title === 'string' ? spec.title.trim() : '';
-  const subtitle = 'Chart rendering temporarily unavailable';
-  const detail = 'Server is missing optional "canvas" dependency.';
-
-  const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <rect width="100%" height="100%" fill="${FALLBACK_PLACEHOLDER_BACKGROUND}" rx="24" />
-  <g fill="${FALLBACK_PLACEHOLDER_PRIMARY}" text-anchor="middle" font-family="'DejaVu Sans','Segoe UI',sans-serif">
-    <text x="50%" y="40%" font-size="22" font-weight="600">${escapeSvgText(title || 'Visualization unavailable')}</text>
-    <text x="50%" y="52%" font-size="16" fill="${FALLBACK_PLACEHOLDER_SECONDARY}">${escapeSvgText(subtitle)}</text>
-    <text x="50%" y="62%" font-size="14" fill="${FALLBACK_PLACEHOLDER_SECONDARY}">${escapeSvgText(detail)}</text>
-  </g>
-</svg>`;
-
-  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
-}
-
 async function renderWithFallback(spec: any): Promise<string> {
   const width = clampNumber(Number(spec?.width) || 720, 320, 1600);
   const height = clampNumber(Number(spec?.height) || 420, 240, 1200);
-
-  const prepared = await prepareCanvas();
-  if (!prepared || !createCanvasImpl) {
-    return renderMissingCanvasPlaceholder(spec, width, height);
-  }
   const dataValues = Array.isArray(spec?.data?.values) ? spec.data.values : [];
   if (!dataValues.length) {
     throw new Error('Fallback renderer benötigt Datenwerte.');
