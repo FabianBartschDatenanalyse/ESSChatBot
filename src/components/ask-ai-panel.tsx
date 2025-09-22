@@ -54,7 +54,11 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
 
     try {
       // Pass only the essential parts of the history, excluding context and queries
-      const historyForApi = messages.map(({ role, content }) => ({ role, content }));
+      // Include the latest user prompt when sending the conversation history to the API.
+      // Using the local `newMessages` array ensures the freshly added user question
+      // is part of the request payload instead of relying on the slightly stale
+      // `messages` state snapshot captured prior to calling `setMessages`.
+      const historyForApi = newMessages.map(({ role, content }) => ({ role, content }));
 
       const response = await fetch('/api/main-assistant', {
         method: 'POST',
