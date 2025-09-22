@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -32,11 +32,25 @@ type AssistantResponse = MainAssistantOutput & { error?: string };
 
 export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPanelProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [messages, setMessages] = useState<Message[]>(conversation.messages);
+  const [messagesState, setMessagesState] = useState<Message[]>(conversation.messages);
+  const messagesRef = useRef<Message[]>(conversation.messages);
+  const messages = messagesState;
+
+  const setMessages = useCallback(
+    (updater: Message[] | ((previous: Message[]) => Message[])) => {
+      setMessagesState(prev => {
+        const next = typeof updater === 'function' ? (updater as (value: Message[]) => Message[])(prev) : updater;
+        messagesRef.current = next;
+        return next;
+      });
+    },
+    []
+  );
 
   useEffect(() => {
+    messagesRef.current = conversation.messages;
     setMessages(conversation.messages);
-  }, [conversation]);
+  }, [conversation, setMessages]);
   
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -47,7 +61,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     const userMessage: Message = { role: 'user', content: values.question };
-    const newMessages = [...messages, userMessage];
+    const newMessages = [...messagesRef.current, userMessage];
     setMessages(newMessages);
     onMessagesUpdate(conversation.id, newMessages);
     setIsLoading(true);
