@@ -106,7 +106,13 @@ const mainAssistantFlow = ai.defineFlow(
         model: 'openai/gpt-4o',
         prompt: `Answer the following user question: "${reformulatedQuestion}"`,
       });
-      return { answer: directAnswerResponse.text };
+
+      const directAnswer = directAnswerResponse.text?.trim();
+      if (!directAnswer) {
+        throw new Error('Generated direct answer was empty.');
+      }
+
+      return { answer: directAnswer };
     }
 
     // Step 2: Unabhängig von SQL zuerst Codebook-Kontext holen
@@ -167,7 +173,11 @@ ${JSON.stringify(statsOutput, null, 2)}
 Write a clear, user-friendly answer based on the regression result. If there was an error, explain it and suggest next steps.`;
 
         const finalLlmResponse = await ai.generate({ model: 'openai/gpt-4o', prompt: finalPrompt });
-        const answer = finalLlmResponse.text;
+        const answer = finalLlmResponse.text?.trim();
+
+        if (!answer) {
+          throw new Error('Generated regression answer was empty.');
+        }
 
         return {
           answer,
@@ -250,7 +260,11 @@ Describe this visualization in your response.`
 Now, formulate a final, user-friendly answer based on the tool's output. If there was an error, state it clearly and suggest next steps.`;
 
     const finalLlmResponse = await ai.generate({ model: 'openai/gpt-4o', prompt: finalPrompt });
-    const answer = finalLlmResponse.text;
+    const answer = finalLlmResponse.text?.trim();
+
+    if (!answer) {
+      throw new Error('Generated final answer was empty.');
+    }
 
     return {
       answer,
