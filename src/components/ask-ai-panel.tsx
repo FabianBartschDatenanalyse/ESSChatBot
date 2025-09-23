@@ -62,12 +62,40 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
   async function onSubmit(values: z.infer<typeof formSchema>) {
     const userMessage: Message = { role: 'user', content: values.question };
     const newMessages = [...messagesRef.current, userMessage];
-    setMessages(newMessages);
-    onMessagesUpdate(conversation.id, newMessages);
+    let latestMessages = newMessages;
+
+    const commitMessages = (
+      nextMessages: Message[],
+      options: { suppressErrors?: boolean } = {}
+    ) => {
+      const { suppressErrors = false } = options;
+
+      if (suppressErrors) {
+        try {
+          setMessages(nextMessages);
+        } catch (stateUpdateError) {
+          console.error('[AskAiPanel] Failed to update local messages state:', stateUpdateError);
+        }
+
+        try {
+          onMessagesUpdate(conversation.id, nextMessages);
+        } catch (propError) {
+          console.error('[AskAiPanel] Failed to propagate messages update:', propError);
+        }
+      } else {
+        setMessages(nextMessages);
+        onMessagesUpdate(conversation.id, nextMessages);
+      }
+
+      latestMessages = nextMessages;
+    };
+
     setIsLoading(true);
     form.reset();
 
     try {
+      commitMessages(newMessages);
+
       // Pass only the essential parts of the history, excluding context and queries
       // Include the latest user prompt when sending the conversation history to the API.
       // Using the local `newMessages` array ensures the freshly added user question
@@ -131,17 +159,15 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
       };
       
       const finalMessages = [...newMessages, assistantMessage];
-      setMessages(finalMessages);
-      onMessagesUpdate(conversation.id, finalMessages);
+      commitMessages(finalMessages);
 
     } catch (error) {
       console.error(error);
       const fallbackError = 'Sorry, I encountered an error. Please try again.';
       const errorText = error instanceof Error && error.message ? error.message : fallbackError;
       const errorMessage: Message = { role: 'assistant', content: errorText };
-      const finalMessages = [...newMessages, errorMessage];
-      setMessages(finalMessages);
-      onMessagesUpdate(conversation.id, finalMessages);
+      const finalMessages = [...latestMessages, errorMessage];
+      commitMessages(finalMessages, { suppressErrors: true });
     } finally {
       setIsLoading(false);
     }
