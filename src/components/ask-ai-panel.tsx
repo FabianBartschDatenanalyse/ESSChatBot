@@ -20,7 +20,10 @@ import { ChatVisualization } from '@/src/components/chat-visualization';
 import type { MainAssistantOutput } from '@/src/ai/flows/main-assistant-flow';
 
 const formSchema = z.object({
-  question: z.string().min(1, 'Question cannot be empty.'),
+  question: z
+    .string()
+    .transform(value => value.trim())
+    .pipe(z.string().min(1, 'Question cannot be empty.')),
 });
 
 interface AskAiPanelProps {
@@ -60,7 +63,9 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    const userMessage: Message = { role: 'user', content: values.question };
+    const question = values.question.trim();
+
+    const userMessage: Message = { role: 'user', content: question };
     const newMessages = [...messagesRef.current, userMessage];
     let latestMessages = newMessages;
 
@@ -109,7 +114,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          question: values.question,
+          question,
           history: historyForApi,
         }),
       });
