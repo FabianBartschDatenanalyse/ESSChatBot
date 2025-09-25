@@ -8,7 +8,21 @@ import {
   ChartLegend,
   ChartLegendContent,
 } from '@/src/components/ui/chart';
-import { CartesianGrid, XAxis, YAxis, BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell } from 'recharts';
+import {
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
+  PieChart,
+  Pie,
+  Cell,
+  Label,
+} from 'recharts';
 import type { ChartDefinition } from '@/src/lib/types';
 import { cn } from '@/src/lib/utils';
 
@@ -29,12 +43,25 @@ function humanize(label: string): string {
     .replace(/^\w/g, (char) => char.toUpperCase());
 }
 
-function buildChartConfig(chart: ChartDefinition) {
-  return chart.series.reduce<Record<string, { label?: React.ReactNode; color?: string }>>(
+type ResolvedSeries = ChartDefinition['series'][number] & {
+  color: string;
+  dataKey: string;
+};
+
+function resolveSeries(chart: ChartDefinition): ResolvedSeries[] {
+  return chart.series.map((series, index) => ({
+    ...series,
+    color: series.color ?? chartPalette[index % chartPalette.length],
+    dataKey: series.dataKey ?? series.key,
+  }));
+}
+
+function buildChartConfig(series: ResolvedSeries[]) {
+  return series.reduce<Record<string, { label?: React.ReactNode; color?: string }>>(
     (acc, series, index) => {
       acc[series.key] = {
         label: series.label ?? humanize(series.key),
-        color: chartPalette[index % chartPalette.length],
+        color: series.color ?? chartPalette[index % chartPalette.length],
       };
       return acc;
     },
@@ -42,16 +69,51 @@ function buildChartConfig(chart: ChartDefinition) {
   );
 }
 
-function normalizeData(chart: ChartDefinition) {
+function getValue(row: Record<string, unknown>, key: string) {
+  if (key in row) {
+    return row[key];
+  }
+
+  if (key.includes('.')) {
+    return key.split('.').reduce<unknown>((acc, segment) => {
+      if (acc && typeof acc === 'object' && segment in (acc as Record<string, unknown>)) {
+        return (acc as Record<string, unknown>)[segment];
+      }
+      return undefined;
+    }, row);
+  }
+
+  return undefined;
+}
+
+function coerceNumeric(value: unknown) {
+  if (typeof value === 'number' || value === null || value === undefined) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return value;
+    }
+
+    const normalized = trimmed.replace(/[^0-9+\-Ee.]/g, '');
+    if (normalized && !Number.isNaN(Number(normalized))) {
+      return Number(normalized);
+    }
+  }
+
+  return value;
+}
+
+function normalizeData(chart: ChartDefinition, series: ResolvedSeries[]) {
   return chart.data.map((row) => {
     const normalized: Record<string, unknown> = { ...row };
-    chart.series.forEach((series) => {
-      const value = (row as Record<string, unknown>)[series.key];
-      if (typeof value === 'string') {
-        const numeric = Number(value);
-        if (!Number.isNaN(numeric)) {
-          normalized[series.key] = numeric;
-        }
+    series.forEach((series) => {
+      const sourceValue = getValue(row as Record<string, unknown>, series.dataKey);
+      const numeric = coerceNumeric(sourceValue);
+      if (numeric !== undefined) {
+        normalized[series.key] = numeric;
       }
     });
     return normalized;
@@ -64,15 +126,53 @@ interface ChatVisualizationProps {
 }
 
 export function ChatVisualization({ chart, className }: ChatVisualizationProps) {
-  const config = React.useMemo(() => buildChartConfig(chart), [chart]);
-  const data = React.useMemo(() => normalizeData(chart), [chart]);
+  const resolvedSeries = React.useMemo(() => resolveSeries(chart), [chart]);
+  const config = React.useMemo(() => buildChartConfig(resolvedSeries), [resolvedSeries]);
+  const data = React.useMemo(() => normalizeData(chart, resolvedSeries), [chart, resolvedSeries]);
+  const hasSecondaryAxis = React.useMemo(
+    () => resolvedSeries.some((series) => series.axis === 'right'),
+    [resolvedSeries],
+  );
 
   const renderCartesian = (type: 'bar' | 'line' | 'area') => {
     const commonAxes = (
       <>
         <CartesianGrid strokeDasharray="3 3" vertical={false} />
-        <XAxis dataKey={chart.xKey} tickLine={false} axisLine={false} />
-        <YAxis tickLine={false} axisLine={false} width={48} />
+        <XAxis dataKey={chart.xKey} tickLine={false} axisLine={false}>
+          {chart.xLabel && (
+            <Label value={chart.xLabel} position="insideBottom" offset={-12} className="text-xs" />
+          )}
+        </XAxis>
+        <YAxis tickLine={false} axisLine={false} width={48} yAxisId="left">
+          {chart.yLabel && (
+            <Label
+              value={chart.yLabel}
+              position="insideLeft"
+              angle={-90}
+              offset={12}
+              className="text-xs"
+            />
+          )}
+        </YAxis>
+        {hasSecondaryAxis && (
+          <YAxis
+            tickLine={false}
+            axisLine={false}
+            width={48}
+            orientation="right"
+            yAxisId="right"
+          >
+            {chart.yLabelSecondary && (
+              <Label
+                value={chart.yLabelSecondary}
+                position="insideRight"
+                angle={90}
+                offset={12}
+                className="text-xs"
+              />
+            )}
+          </YAxis>
+        )}
         <ChartTooltip cursor={{ opacity: 0.2 }} content={<ChartTooltipContent />} />
         <ChartLegend content={<ChartLegendContent />} />
       </>
@@ -82,13 +182,16 @@ export function ChatVisualization({ chart, className }: ChatVisualizationProps) 
       return (
         <BarChart data={data}>
           {commonAxes}
-          {chart.series.map((series) => (
+          {resolvedSeries.map((series) => (
             <Bar
               key={series.key}
               dataKey={series.key}
-              fill={`var(--color-${series.key})`}
+              fill={series.color}
+              stroke={series.color}
               radius={4}
               maxBarSize={64}
+              stackId={series.stackId}
+              yAxisId={series.axis === 'right' ? 'right' : 'left'}
             />
           ))}
         </BarChart>
@@ -99,14 +202,15 @@ export function ChatVisualization({ chart, className }: ChatVisualizationProps) 
       return (
         <LineChart data={data}>
           {commonAxes}
-          {chart.series.map((series) => (
+          {resolvedSeries.map((series) => (
             <Line
               key={series.key}
               type="monotone"
               dataKey={series.key}
-              stroke={`var(--color-${series.key})`}
+              stroke={series.color}
               strokeWidth={2}
               dot={false}
+              yAxisId={series.axis === 'right' ? 'right' : 'left'}
             />
           ))}
         </LineChart>
@@ -116,14 +220,16 @@ export function ChatVisualization({ chart, className }: ChatVisualizationProps) 
     return (
       <AreaChart data={data}>
         {commonAxes}
-        {chart.series.map((series) => (
+        {resolvedSeries.map((series) => (
           <Area
             key={series.key}
             type="monotone"
             dataKey={series.key}
-            fill={`var(--color-${series.key})`}
-            stroke={`var(--color-${series.key})`}
+            fill={series.color}
+            stroke={series.color}
             fillOpacity={0.3}
+            stackId={series.stackId}
+            yAxisId={series.axis === 'right' ? 'right' : 'left'}
           />
         ))}
       </AreaChart>
@@ -131,7 +237,7 @@ export function ChatVisualization({ chart, className }: ChatVisualizationProps) 
   };
 
   const renderPie = () => {
-    const [series] = chart.series;
+    const [series] = resolvedSeries;
     return (
       <PieChart>
         <ChartTooltip content={<ChartTooltipContent />} />
@@ -147,7 +253,7 @@ export function ChatVisualization({ chart, className }: ChatVisualizationProps) 
           {data.map((_, index) => (
             <Cell
               key={`cell-${index}`}
-              fill={chartPalette[index % chartPalette.length]}
+              fill={series.color ?? chartPalette[index % chartPalette.length]}
               stroke="var(--border)"
             />
           ))}

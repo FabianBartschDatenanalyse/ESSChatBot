@@ -33,6 +33,14 @@ export function UserNav({ user }: UserNavProps) {
 
   const handleLogout = async () => {
     try {
+      if (!auth) {
+        toast({
+          variant: "destructive",
+          title: "Logout Unavailable",
+          description: "Authentication is not configured for this environment.",
+        });
+        return;
+      }
       await signOut(auth);
       toast({
         title: "Logged Out",
