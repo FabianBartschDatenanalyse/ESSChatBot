@@ -19,6 +19,45 @@ import Logo from '@/src/components/logo';
 import { ChatVisualization } from '@/src/components/chat-visualization';
 import type { MainAssistantOutput } from '@/src/ai/flows/main-assistant-flow';
 
+const UNKNOWN_ASSISTANT_ERROR_MESSAGE = 'Assistant service reported an unknown error.';
+
+const formatAssistantError = (rawError: unknown): string => {
+  if (!rawError) {
+    return UNKNOWN_ASSISTANT_ERROR_MESSAGE;
+  }
+
+  if (typeof rawError === 'string') {
+    return rawError;
+  }
+
+  if (rawError instanceof Error && rawError.message) {
+    return rawError.message;
+  }
+
+  if (typeof rawError === 'object') {
+    const errorObject = rawError as Record<string, unknown>;
+
+    if (typeof errorObject.message === 'string' && errorObject.message.trim().length > 0) {
+      return errorObject.message;
+    }
+
+    if (typeof errorObject.error === 'string' && errorObject.error.trim().length > 0) {
+      return errorObject.error;
+    }
+
+    try {
+      const serialized = JSON.stringify(errorObject);
+      if (serialized && serialized !== '{}') {
+        return serialized;
+      }
+    } catch (serializationError) {
+      console.error('[AskAiPanel] Failed to serialize assistant error object:', serializationError, errorObject);
+    }
+  }
+
+  return UNKNOWN_ASSISTANT_ERROR_MESSAGE;
+};
+
 const formSchema = z.object({
   question: z
     .string()
@@ -140,11 +179,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
       }
 
       if ('error' in result && result.error) {
-        const message =
-          typeof result.error === 'string'
-            ? result.error
-            : 'Assistant service reported an unknown error.';
-        throw new Error(message);
+        throw new Error(formatAssistantError(result.error));
       }
 
       if (!('answer' in result) || typeof result.answer !== 'string') {
@@ -169,7 +204,8 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
     } catch (error) {
       console.error(error);
       const fallbackError = 'Sorry, I encountered an error. Please try again.';
-      const errorText = error instanceof Error && error.message ? error.message : fallbackError;
+      const formattedError = formatAssistantError(error);
+      const errorText = formattedError === UNKNOWN_ASSISTANT_ERROR_MESSAGE ? fallbackError : formattedError;
       const errorMessage: Message = { role: 'assistant', content: errorText };
       const finalMessages = [...latestMessages, errorMessage];
       commitMessages(finalMessages, { suppressErrors: true });
