@@ -24,6 +24,9 @@ const nextConfig: NextConfig = {
       }
     ],
   },
+  experimental: {
+    serverComponentsExternalPackages: ['@resvg/resvg-js', 'vega', 'vega-lite', 'canvas'],
+  },
 };
 
 export default nextConfig;
