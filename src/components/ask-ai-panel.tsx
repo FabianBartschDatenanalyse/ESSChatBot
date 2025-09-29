@@ -58,6 +58,63 @@ const formatAssistantError = (rawError: unknown): string => {
   return UNKNOWN_ASSISTANT_ERROR_MESSAGE;
 };
 
+const safeSlice = (value: string, maxLength: number) => {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength)}…`;
+};
+
+const headersToObject = (headers: Headers): Record<string, string> => {
+  const result: Record<string, string> = {};
+
+  headers.forEach((value, key) => {
+    result[key] = value;
+  });
+
+  return result;
+};
+
+const createErrorLogDetails = (
+  context: Record<string, unknown>
+): Record<string, unknown> => {
+  const safeContext: Record<string, unknown> = {};
+
+  Object.entries(context).forEach(([key, value]) => {
+    if (value instanceof Error) {
+      safeContext[key] = {
+        name: value.name,
+        message: value.message,
+        stack: value.stack,
+      };
+      return;
+    }
+
+    if (typeof value === 'string') {
+      safeContext[key] = value;
+      return;
+    }
+
+    if (value === null || value === undefined) {
+      safeContext[key] = value;
+      return;
+    }
+
+    try {
+      safeContext[key] = JSON.parse(JSON.stringify(value));
+    } catch (serializationError) {
+      safeContext[key] = `Unserializable value of type ${typeof value}`;
+      console.error('[AskAiPanel] Failed to serialize error log context value:', serializationError, {
+        contextKey: key,
+        rawValue: value,
+      });
+    }
+  });
+
+  return safeContext;
+};
+
 const formSchema = z.object({
   question: z
     .string()
@@ -107,6 +164,14 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
     const userMessage: Message = { role: 'user', content: question };
     const newMessages = [...messagesRef.current, userMessage];
     let latestMessages = newMessages;
+    const requestDebugInfo = {
+      conversationId: conversation.id,
+      questionPreview: safeSlice(question, 200),
+      newMessageCount: newMessages.length,
+      previousMessageCount: messagesRef.current.length,
+      timestamp: new Date().toISOString(),
+    };
+    let responseDebugInfo: Record<string, unknown> | null = null;
 
     const commitMessages = (
       nextMessages: Message[],
@@ -162,6 +227,15 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
       const contentType = response.headers.get('Content-Type') ?? '';
       let result: AssistantResponse | { error?: string } | null = null;
 
+      responseDebugInfo = {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        contentType,
+        headers: headersToObject(response.headers),
+        bodyPreview: safeSlice(responseText, 2000),
+      };
+
       if (responseText) {
         if (contentType.toLowerCase().includes('application/json')) {
           try {
@@ -212,7 +286,13 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
       commitMessages(finalMessages);
 
     } catch (error) {
-      console.error('[AskAiPanel] onSubmit failed:', error);
+      const errorDetails = createErrorLogDetails({
+        error,
+        ...requestDebugInfo,
+        response: responseDebugInfo,
+      });
+
+      console.error('[AskAiPanel] onSubmit failed with context:', errorDetails);
       const fallbackError = 'Sorry, I encountered an error. Please try again.';
       const formattedError = formatAssistantError(error);
       const errorText = formattedError === UNKNOWN_ASSISTANT_ERROR_MESSAGE ? fallbackError : formattedError;
