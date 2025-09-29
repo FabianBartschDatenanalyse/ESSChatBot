@@ -40,6 +40,44 @@ export type MainAssistantOutput = z.infer<typeof MainAssistantOutputSchema>;
 
 export async function mainAssistant(input: MainAssistantInput): Promise<MainAssistantOutput> {
   noStore();
+  const missingEnvVars: string[] = [];
+
+  if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.trim().length === 0) {
+    missingEnvVars.push('OPENAI_API_KEY');
+  }
+
+  const missingSupabaseValues: string[] = [];
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL.trim().length === 0) {
+    missingSupabaseValues.push('NEXT_PUBLIC_SUPABASE_URL');
+  }
+  if (
+    !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.trim().length === 0
+  ) {
+    missingSupabaseValues.push('NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  }
+
+  if (missingSupabaseValues.length > 0) {
+    console.warn(
+      '[mainAssistant] Supabase environment variables are missing. Database-backed questions will fail until they are configured.',
+      missingSupabaseValues,
+    );
+  }
+
+  if (missingEnvVars.length > 0) {
+    const message =
+      'The AI assistant service is not configured. Please provide the required environment variables before using this feature. ' +
+      `Missing: ${missingEnvVars.join(', ')}.`;
+    console.error('[mainAssistant] Missing required configuration:', missingEnvVars);
+
+    return {
+      answer: message,
+      sqlQuery: undefined,
+      retrievedContext: undefined,
+      chart: undefined,
+    };
+  }
+
   const result = await mainAssistantFlow(input);
   console.log('[mainAssistant] Returning from mainAssistant:', JSON.stringify(result, null, 2));
   return result;
