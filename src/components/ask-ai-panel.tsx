@@ -159,19 +159,29 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
       });
 
       const responseText = await response.text();
+      const contentType = response.headers.get('Content-Type') ?? '';
       let result: AssistantResponse | { error?: string } | null = null;
 
       if (responseText) {
-        try {
-          result = JSON.parse(responseText);
-        } catch (parseError) {
-          console.error('[AskAiPanel] Failed to parse assistant response as JSON:', parseError, responseText);
-          throw new Error('Received an invalid response from the assistant service.');
+        if (contentType.toLowerCase().includes('application/json')) {
+          try {
+            result = JSON.parse(responseText);
+          } catch (parseError) {
+            console.error('[AskAiPanel] Failed to parse assistant response as JSON:', parseError, responseText);
+            throw new Error('Received an invalid JSON response from the assistant service.');
+          }
+        } else {
+          // Preserve the raw body so we can surface meaningful error messages from non-JSON responses.
+          result = { error: responseText };
         }
       }
 
       if (!response.ok) {
-        throw new Error(result?.error ?? `Failed to fetch assistant response. (status ${response.status})`);
+        const statusText = response.statusText?.trim();
+        const derivedMessage =
+          result?.error ??
+          (statusText ? `${statusText} (status ${response.status})` : `Failed to fetch assistant response. (status ${response.status})`);
+        throw new Error(formatAssistantError(derivedMessage));
       }
 
       if (!result || typeof result !== 'object') {
@@ -202,7 +212,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
       commitMessages(finalMessages);
 
     } catch (error) {
-      console.error(error);
+      console.error('[AskAiPanel] onSubmit failed:', error);
       const fallbackError = 'Sorry, I encountered an error. Please try again.';
       const formattedError = formatAssistantError(error);
       const errorText = formattedError === UNKNOWN_ASSISTANT_ERROR_MESSAGE ? fallbackError : formattedError;
