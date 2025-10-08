@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { Toaster } from '@/src/components/ui/toaster';
 import localFont from 'next/font/local';
+import { AppProviders } from '@/src/components/app-providers';
 
 export const metadata: Metadata = {
   title: 'ESS Navigator',
@@ -29,7 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning className={`${bodyFont.variable} ${headingFont.variable}`}>
       <body className="font-body antialiased">
-        {children}
+        <AppProviders>{children}</AppProviders>
         <Toaster />
       </body>
     </html>

@@ -17,9 +17,11 @@ import { z } from 'zod';
 import { executeQueryTool } from '@/src/ai/tools/sql-query-tool';
 import { searchCodebook } from '@/src/lib/vector-search';
 import { statisticsTool } from '@/src/ai/tools/statistics-tool';
+import { generateVisualization } from '@/src/features/charting/server/generate-visualization';
+import { VisualizationChartMessageSchema } from '@/src/features/charting/types';
+import { randomUUID } from 'crypto';
 
 // ✨ NEU: Chart-Tool importieren
-import { chartTool } from '@/src/ai/tools/chart-tool';
 
 // ✨ NEU: Heuristik, ob die Frage nach einer Grafik klingt
 const looksLikeChart = (q: string) =>
@@ -40,6 +42,7 @@ const MainAssistantOutputSchema = z.object({
   answer: z.string().describe('The final answer to be displayed to the user.'),
   sqlQuery: z.string().optional().describe('The SQL query that was executed.'),
   retrievedContext: z.string().optional().describe('The context retrieved from the vector database.'),
+  chart: VisualizationChartMessageSchema.optional(),
 });
 export type MainAssistantOutput = z.infer<typeof MainAssistantOutputSchema>;
 
@@ -107,36 +110,37 @@ const mainAssistantFlow = ai.defineFlow(
 
     // ✨ NEU: Direkt nach der Reformulierung – Chart-Fall vorziehen
     if (looksLikeChart(reformulatedQuestion)) {
-      console.log('[mainAssistantFlow] Chart intent detected. Delegating to chartTool...');
-      const chart = await chartTool({
+      console.log('[mainAssistantFlow] Chart intent detected. Generating visualization payload...');
+      const clientChartId = randomUUID();
+      const visualization = await generateVisualization({
         nlQuestion: reformulatedQuestion,
         history: input.history,
+        clientChartId,
       });
 
-      if (chart.error) {
+      if (visualization.status === 'error' || !visualization.chart || !visualization.meta?.request) {
         return {
           answer:
-            `Die Grafik konnte nicht erzeugt werden:\n${chart.error}\n\n` +
-            `Vorschlag: Formuliere kurz, *welche* Variable(n) auf welche Achsen sollen und ggf. Gruppierung ` +
-            `(z. B. "Durchschnitt von trstprl nach cntry").`,
-          retrievedContext: chart.retrievedContext || undefined,
-          sqlQuery: chart.sqlQuery || undefined,
+            `Die Grafik konnte nicht erzeugt werden.\n${visualization.error?.message ?? ''}\n\n` +
+            `Tipp: Beschreibe knapp, welche Variablen auf die Achsen sollen und welche Aggregation du erwartest.`,
+          retrievedContext: visualization.chart?.retrievedContext,
+          sqlQuery: visualization.chart?.sqlQuery,
         };
       }
 
-      // Wenn du Bilder bevorzugst (data URL), direkt als Markdown zurückgeben:
-      const imgMd = chart.imageDataUrl
-        ? `![${chart.title || 'Chart'}](${chart.imageDataUrl})`
-        : '';
-
-      const specNote = chart.vegaLiteSpec
-        ? '\n\n*(Technik: Vega-Lite Spec wurde erzeugt; du kannst sie im Frontend auch clientseitig rendern.)*'
-        : '';
+      const caption =
+        visualization.chart.caption ??
+        'Hier ist die automatisch generierte Visualisierung. Du kannst sie mit den Tools im Interface weiter anpassen.';
 
       return {
-        answer: `${chart.caption || 'Hier ist die gewünschte Grafik.'}\n\n${imgMd}${specNote}`,
-        sqlQuery: chart.sqlQuery,
-        retrievedContext: chart.retrievedContext,
+        answer: caption,
+        sqlQuery: visualization.chart.sqlQuery,
+        retrievedContext: visualization.chart.retrievedContext,
+        chart: {
+          ...visualization.chart,
+          id: visualization.chart.id,
+          request: visualization.meta.request,
+        },
       };
     }
 

@@ -16,6 +16,8 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/src/components/ui/avatar"
 import { Loader2, Send, Code2, Database } from "lucide-react";
 import { type Conversation, type Message } from "@/src/lib/types";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/src/components/ui/accordion";
+import { ChartShell } from "@/src/features/charting/components/chart-shell";
+import { VegaChart } from "@/src/features/charting/components/vega-chart";
 
 interface InlineRenderResult {
   nodes: React.ReactNode[];
@@ -438,6 +440,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
         content: result.answer, // kann Markdown + data:image/png enthalten
         sqlQuery: result.sqlQuery,
         retrievedContext: result.retrievedContext,
+        chart: result.chart,
       };
 
       const finalMessages = [...newMessages, assistantMessage];
@@ -512,6 +515,25 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                         alt="Chart"
                         className="max-w-full h-auto rounded-md shadow-sm"
                       />
+                    </div>
+                  )}
+
+                  {message.role === "assistant" && message.chart && (
+                    <div className="mt-4 space-y-3">
+                      <ChartShell title={message.chart.title} caption={message.chart.caption}>
+                        <VegaChart
+                          chartId={message.chart.id}
+                          request={message.chart.request}
+                          initialChart={{
+                            id: message.chart.id,
+                            config: message.chart.config,
+                            title: message.chart.title,
+                            caption: message.chart.caption,
+                            sqlQuery: message.chart.sqlQuery,
+                            retrievedContext: message.chart.retrievedContext,
+                          }}
+                        />
+                      </ChartShell>
                     </div>
                   )}
 

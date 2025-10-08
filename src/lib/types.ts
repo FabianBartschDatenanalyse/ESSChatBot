@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { VisualizationChartMessageSchema } from '@/src/features/charting/types';
 
 /**
  * Defines the structure for a single message in a conversation.
@@ -9,6 +10,7 @@ export const MessageSchema = z.object({
   content: z.string(),
   sqlQuery: z.string().optional(),
   retrievedContext: z.string().optional(),
+  chart: VisualizationChartMessageSchema.optional(),
 });
 export type Message = z.infer<typeof MessageSchema>;
 
