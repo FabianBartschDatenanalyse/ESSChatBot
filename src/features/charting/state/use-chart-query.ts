@@ -1,5 +1,4 @@
-import { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
 import { fetchChart } from '@/src/features/charting/api/fetch-chart';
 import {
   VisualizationChart,
@@ -15,6 +14,13 @@ interface UseChartQueryParams {
   enabled?: boolean;
 }
 
+interface QueryState {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  data?: VisualizationResponse;
+  error: Error | null;
+  isFetching: boolean;
+}
+
 export function useChartQuery({
   chartId,
   request,
@@ -25,23 +31,112 @@ export function useChartQuery({
   const setSuccess = useChartStore((state) => state.setSuccess);
   const setError = useChartStore((state) => state.setError);
 
-  const query = useQuery<VisualizationResponse, Error>({
-    queryKey: ['chart', chartId],
-    queryFn: ({ signal }) => fetchChart({ ...request, clientChartId: chartId }, { signal }),
-    staleTime: 60_000,
-    retry: 1,
-    enabled,
-    initialData: initialChart
-      ? {
-          status: 'success',
-          chart: { ...initialChart, id: chartId },
-          meta: {
-            generatedAt: new Date().toISOString(),
-            request: { ...request, clientChartId: chartId },
-          },
+  const initialData = useMemo<VisualizationResponse | undefined>(() => {
+    if (!initialChart) {
+      return undefined;
+    }
+
+    return {
+      status: 'success',
+      chart: { ...initialChart, id: chartId },
+      meta: {
+        generatedAt: new Date().toISOString(),
+        request: { ...request, clientChartId: chartId },
+      },
+    };
+  }, [chartId, initialChart, request]);
+
+  const [state, setState] = useState<QueryState>(() => ({
+    status: initialData ? 'success' : enabled ? 'loading' : 'idle',
+    data: initialData,
+    error: null,
+    isFetching: false,
+  }));
+
+  useEffect(() => {
+    if (!initialData) {
+      return;
+    }
+
+    setState((prev) => {
+      if (prev.data?.chart.id === initialData.chart.id) {
+        return prev;
+      }
+
+      return {
+        status: 'success',
+        data: initialData,
+        error: null,
+        isFetching: prev.isFetching,
+      };
+    });
+  }, [initialData]);
+
+  useEffect(() => {
+    if (!enabled || !chartId) {
+      setState((prev) => ({
+        ...prev,
+        isFetching: false,
+        status: prev.data ? 'success' : 'idle',
+      }));
+      return;
+    }
+
+    let isActive = true;
+    const controller = new AbortController();
+
+    setState((prev) => ({
+      ...prev,
+      status: prev.data ? 'success' : 'loading',
+      isFetching: true,
+      error: null,
+    }));
+
+    fetchChart({ ...request, clientChartId: chartId }, { signal: controller.signal })
+      .then((response) => {
+        if (!isActive) {
+          return;
         }
-      : undefined,
-  });
+
+        setState({
+          status: 'success',
+          data: response,
+          error: null,
+          isFetching: false,
+        });
+      })
+      .catch((error) => {
+        if (!isActive || error?.name === 'AbortError') {
+          return;
+        }
+
+        const normalizedError =
+          error instanceof Error ? error : new Error('Die Visualisierung konnte nicht geladen werden.');
+
+        setState((prev) => ({
+          status: 'error',
+          data: prev.data,
+          error: normalizedError,
+          isFetching: false,
+        }));
+      });
+
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
+  }, [chartId, enabled, request]);
+
+  const query = useMemo(
+    () => ({
+      data: state.data,
+      error: state.error ?? undefined,
+      isError: state.status === 'error',
+      isLoading: state.status === 'loading' && !state.data,
+      isFetching: state.isFetching,
+    }),
+    [state],
+  );
 
   useEffect(() => {
     if (!enabled) {
