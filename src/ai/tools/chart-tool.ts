@@ -28,14 +28,27 @@ const isModuleNotFoundError = (error: unknown, specifier: string) => {
   );
 };
 
-async function tryImport(specifier: string) {
+type ImportResult = {
+  module: any | null;
+  error: Error | null;
+  isMissing: boolean;
+};
+
+async function tryImport(specifier: string): Promise<ImportResult> {
   try {
-    return await import(/* @vite-ignore */ specifier);
-  } catch (error) {
-    if (isModuleNotFoundError(error, specifier)) {
-      return null;
-    }
-    throw error;
+    const module = await import(/* @vite-ignore */ specifier);
+    return { module, error: null, isMissing: false };
+  } catch (unknownError) {
+    const error =
+      unknownError instanceof Error ? unknownError : new Error(String(unknownError));
+    const isMissing = isModuleNotFoundError(error, specifier);
+
+    console.error(
+      `[chart-tool] Fehler beim dynamischen Import von "${specifier}". Missing: ${isMissing}.`,
+      error,
+    );
+
+    return { module: null, error, isMissing };
   }
 }
 
@@ -45,11 +58,61 @@ const FONT_FAMILY = 'DejaVu Sans';
  *  RENDERER (bestehend)
  *  ------------------------------ */
 export async function renderVegaLiteToPngDataUrl(spec: any): Promise<string> {
-  const [vegaModule, vegaLiteModule, resvgModule] = await Promise.all([
+  const [vegaImport, vegaLiteImport, resvgImport] = await Promise.all([
     tryImport('vega'),
     tryImport('vega-lite'),
     tryImport('@resvg/resvg-js'),
   ]);
+
+  const dependencyResults = [
+    { name: 'vega', result: vegaImport },
+    { name: 'vega-lite', result: vegaLiteImport },
+    { name: '@resvg/resvg-js', result: resvgImport },
+  ];
+
+  const missingDependencies = dependencyResults.filter(({ result }) => result.isMissing);
+  const failedDependencies = dependencyResults.filter(
+    ({ result }) => !result.isMissing && result.error,
+  );
+
+  if (missingDependencies.length || failedDependencies.length) {
+    const details: string[] = [];
+
+    if (missingDependencies.length) {
+      for (const { name, result } of missingDependencies) {
+        details.push(
+          `• Modul "${name}" nicht gefunden. Originalfehler: ${result.error?.message ?? 'unbekannt'}.`,
+        );
+      }
+    }
+
+    if (failedDependencies.length) {
+      for (const { name, result } of failedDependencies) {
+        details.push(
+          `• Modul "${name}" konnte nicht geladen werden (kein klassischer Missing-Fall). Originalfehler: ${result.error?.message ?? 'unbekannt'}.`,
+        );
+      }
+    }
+
+    details.push(
+      'Installationshinweis: npm install vega vega-lite @resvg/resvg-js (bzw. entsprechendes Paketmanagement).',
+    );
+
+    const errorMessage =
+      'Vega Renderer Initialisierung fehlgeschlagen. Bitte prüfen Sie die folgenden Abhängigkeiten:\n' +
+      details.join('\n');
+
+    console.error('[chart-tool] Vega Renderer Initialisierung fehlgeschlagen.', {
+      missingDependencies,
+      failedDependencies,
+    });
+
+    throw new Error(errorMessage);
+  }
+
+  const vegaModule = vegaImport.module;
+  const vegaLiteModule = vegaLiteImport.module;
+  const resvgModule = resvgImport.module;
 
   const vega = vegaModule?.default ?? vegaModule;
   const vegaLite = vegaLiteModule?.default ?? vegaLiteModule;
@@ -57,9 +120,27 @@ export async function renderVegaLiteToPngDataUrl(spec: any): Promise<string> {
     resvgModule?.Resvg ?? resvgModule?.default?.Resvg ?? resvgModule?.default ?? null;
 
   if (!vega || !vegaLite || !ResvgCtor) {
-    throw new Error(
-      'Vega Renderer nicht verfügbar: Benötigte Pakete "vega", "vega-lite" und "@resvg/resvg-js" müssen installiert sein.',
-    );
+    const missingConstructors = [
+      !vega && 'vega',
+      !vegaLite && 'vega-lite',
+      !ResvgCtor && '@resvg/resvg-js (Resvg Constructor)',
+    ].filter(Boolean);
+
+    const detailMessage = missingConstructors
+      .map((name) => `• Konstruktor für ${name} nicht gefunden.`)
+      .join('\n');
+
+    const errorMessage =
+      'Vega Renderer nicht verfügbar. Import erfolgreich, aber erwartete Exporte fehlen:\n' +
+      detailMessage;
+
+    console.error('[chart-tool] Vega Renderer Exporte nicht gefunden.', {
+      vegaModule,
+      vegaLiteModule,
+      resvgModule,
+    });
+
+    throw new Error(errorMessage);
   }
 
   try {
