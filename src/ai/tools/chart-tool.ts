@@ -34,20 +34,19 @@ type ImportResult = {
   isMissing: boolean;
 };
 
-async function tryImport(specifier: string): Promise<ImportResult> {
+async function tryLoadModule(
+  specifier: string,
+  loader: () => Promise<any>,
+): Promise<ImportResult> {
   try {
-    const module = await import(/* @vite-ignore */ specifier);
+    const module = await loader();
     return { module, error: null, isMissing: false };
   } catch (unknownError) {
     const error =
       unknownError instanceof Error ? unknownError : new Error(String(unknownError));
     const isMissing = isModuleNotFoundError(error, specifier);
-
-    console.error(
-      `[chart-tool] Fehler beim dynamischen Import von "${specifier}". Missing: ${isMissing}.`,
-      error,
-    );
-
+    const reason = isMissing ? 'Missing dependency' : 'Failed to load dependency';
+    console.error(`[chart-tool] ${reason} "${specifier}".`, error);
     return { module: null, error, isMissing };
   }
 }
@@ -59,9 +58,9 @@ const FONT_FAMILY = 'DejaVu Sans';
  *  ------------------------------ */
 export async function renderVegaLiteToPngDataUrl(spec: any): Promise<string> {
   const [vegaImport, vegaLiteImport, resvgImport] = await Promise.all([
-    tryImport('vega'),
-    tryImport('vega-lite'),
-    tryImport('@resvg/resvg-js'),
+    tryLoadModule('vega', () => import('vega')),
+    tryLoadModule('vega-lite', () => import('vega-lite')),
+    tryLoadModule('@resvg/resvg-js', () => import('@resvg/resvg-js')),
   ]);
 
   const dependencyResults = [
@@ -80,16 +79,16 @@ export async function renderVegaLiteToPngDataUrl(spec: any): Promise<string> {
 
     if (missingDependencies.length) {
       for (const { name, result } of missingDependencies) {
-        details.push(
-          `• Modul "${name}" nicht gefunden. Originalfehler: ${result.error?.message ?? 'unbekannt'}.`,
-        );
+        const message = result.error?.message ?? 'unbekannt';
+        details.push(`- Modul "${name}" nicht gefunden. Originalfehler: ${message}.`);
       }
     }
 
     if (failedDependencies.length) {
       for (const { name, result } of failedDependencies) {
+        const message = result.error?.message ?? 'unbekannt';
         details.push(
-          `• Modul "${name}" konnte nicht geladen werden (kein klassischer Missing-Fall). Originalfehler: ${result.error?.message ?? 'unbekannt'}.`,
+          `- Modul "${name}" konnte nicht geladen werden (kein klassischer Missing-Fall). Originalfehler: ${message}.`,
         );
       }
     }
@@ -99,7 +98,7 @@ export async function renderVegaLiteToPngDataUrl(spec: any): Promise<string> {
     );
 
     const errorMessage =
-      'Vega Renderer Initialisierung fehlgeschlagen. Bitte prüfen Sie die folgenden Abhängigkeiten:\n' +
+      'Vega Renderer Initialisierung fehlgeschlagen. Bitte pruefen Sie die folgenden Abhaengigkeiten:\n' +
       details.join('\n');
 
     console.error('[chart-tool] Vega Renderer Initialisierung fehlgeschlagen.', {
@@ -109,7 +108,6 @@ export async function renderVegaLiteToPngDataUrl(spec: any): Promise<string> {
 
     throw new Error(errorMessage);
   }
-
   const vegaModule = vegaImport.module;
   const vegaLiteModule = vegaLiteImport.module;
   const resvgModule = resvgImport.module;
@@ -127,11 +125,11 @@ export async function renderVegaLiteToPngDataUrl(spec: any): Promise<string> {
     ].filter(Boolean);
 
     const detailMessage = missingConstructors
-      .map((name) => `• Konstruktor für ${name} nicht gefunden.`)
+      .map((name) => `- Konstruktor fuer ${name} nicht gefunden.`)
       .join('\n');
 
     const errorMessage =
-      'Vega Renderer nicht verfügbar. Import erfolgreich, aber erwartete Exporte fehlen:\n' +
+      'Vega Renderer nicht verfuegbar. Import erfolgreich, aber erwartete Exporte fehlen:\n' +
       detailMessage;
 
     console.error('[chart-tool] Vega Renderer Exporte nicht gefunden.', {
@@ -142,7 +140,6 @@ export async function renderVegaLiteToPngDataUrl(spec: any): Promise<string> {
 
     throw new Error(errorMessage);
   }
-
   try {
     const compiled = vegaLite.compile(spec).spec;
     const view = new vega.View(vega.parse(compiled), { renderer: 'svg' });
@@ -618,10 +615,12 @@ const styleToolInternal = ai.defineTool(
 
       // 3) Validieren (Vega-Lite → Vega)
       try {
-        const [vegaModule, vegaLiteModule] = await Promise.all([
-          tryImport('vega'),
-          tryImport('vega-lite'),
+        const [vegaCheck, vegaLiteCheck] = await Promise.all([
+          tryLoadModule('vega', () => import('vega')),
+          tryLoadModule('vega-lite', () => import('vega-lite')),
         ]);
+        const vegaModule = vegaCheck.module;
+        const vegaLiteModule = vegaLiteCheck.module;
         if (vegaModule && vegaLiteModule) {
           const vega = vegaModule.default ?? vegaModule;
           const vegaLite = vegaLiteModule.default ?? vegaLiteModule;

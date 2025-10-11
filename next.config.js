@@ -31,7 +31,7 @@ const nextConfig = {
   typescript: { ignoreBuildErrors: true },
   eslint: { ignoreDuringBuilds: true },
 
-  serverExternalPackages: ['@resvg/resvg-js', 'sharp', 'canvas'],
+  serverExternalPackages: ['@resvg/resvg-js', 'sharp', 'canvas', 'vega', 'vega-lite'],
 
   images: {
     remotePatterns: [
@@ -55,6 +55,14 @@ const nextConfig = {
 
     config.externals = config.externals || [];
     config.externals.push(/\.node$/);
+
+    if (isServer) {
+      config.externals.push({
+        vega: 'commonjs vega',
+        'vega-lite': 'commonjs vega-lite',
+        '@resvg/resvg-js': 'commonjs @resvg/resvg-js',
+      });
+    }
 
     return config;
   },

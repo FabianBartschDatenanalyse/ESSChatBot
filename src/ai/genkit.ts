@@ -1,5 +1,4 @@
 
-import { createRequire } from 'node:module';
 import { genkit } from 'genkit';
 import type { GenerateRequest, GenerateResponseData, Part } from '@genkit-ai/ai/model';
 
@@ -42,18 +41,7 @@ const { plugin: openAiPluginFactory, error: openAiLoadError } = await (async () 
   };
 
   try {
-    const requireForCompat = createRequire(import.meta.url);
-    const mod = requireForCompat(moduleSpecifier);
-    const plugin = normalizeModule(mod);
-    if (plugin) {
-      return { plugin, error: detectedError };
-    }
-  } catch (error) {
-    recordError(error);
-  }
-
-  try {
-    const mod = await import(moduleSpecifier);
+    const mod = await import('@genkit-ai/compat-oai/openai');
     const plugin = normalizeModule(mod);
     if (plugin) {
       return { plugin, error: detectedError };
@@ -65,10 +53,25 @@ const { plugin: openAiPluginFactory, error: openAiLoadError } = await (async () 
   return { plugin: null, error: detectedError };
 })();
 
-const hasApiKey = Boolean(process.env.OPENAI_API_KEY);
+const normalizeEnvValue = (value: string | undefined | null) => {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const placeholders = ['DEIN_OPENAI_API_KEY_HIER', 'your-openai-api-key'];
+  if (placeholders.some((placeholder) => trimmed.toLowerCase().includes(placeholder.toLowerCase()))) {
+    return undefined;
+  }
+  return trimmed;
+};
+
+const resolvedOpenAiKey =
+  normalizeEnvValue(process.env.OPENAI_API_KEY) ??
+  normalizeEnvValue(process.env.NEXT_PUBLIC_OPENAI_API_KEY);
+
+const hasApiKey = Boolean(resolvedOpenAiKey);
 const plugins =
   openAiPluginFactory && hasApiKey
-    ? [openAiPluginFactory({ apiKey: process.env.OPENAI_API_KEY! })]
+    ? [openAiPluginFactory({ apiKey: resolvedOpenAiKey! })]
     : [];
 
 const ai = genkit({
@@ -230,6 +233,14 @@ const registerFallbackModels = (apiKey: string): string[] => {
       applyGenerationConfig(body, request.config);
       applyOutputConfig(body, request.output);
 
+      const abortSignal =
+        (context && typeof (context as any).signal !== 'undefined'
+          ? (context as any).signal
+          : undefined) ??
+        (context && typeof (context as any).abortSignal !== 'undefined'
+          ? (context as any).abortSignal
+          : undefined);
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -237,7 +248,7 @@ const registerFallbackModels = (apiKey: string): string[] => {
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
-        signal: context?.abortSignal,
+        signal: abortSignal,
       });
 
       const payload = await response.json().catch(() => ({}));
@@ -281,25 +292,25 @@ const registerFallbackModels = (apiKey: string): string[] => {
 
   if (registeredModels.length) {
     console.warn(
-      '[genkit] @genkit-ai/compat-oai wurde nicht gefunden. Verwende integrierte Fallback-Clients für OpenAI.',
+      '[genkit] @genkit-ai/compat-oai wurde nicht gefunden. Verwende integrierte Fallback-Clients fuer OpenAI.',
     );
   }
 
   return registeredModels;
 };
 
-const fallbackModels = !plugins.length && hasApiKey ? registerFallbackModels(process.env.OPENAI_API_KEY!) : [];
+const fallbackModels = !plugins.length && hasApiKey ? registerFallbackModels(resolvedOpenAiKey!) : [];
 
 export const isAiConfigured = plugins.length > 0 || fallbackModels.length > 0;
 
 if (!isAiConfigured) {
   const reason = !hasApiKey
-    ? 'Es ist kein OPENAI_API_KEY gesetzt.'
+    ? 'Es ist kein OPENAI_API_KEY gesetzt (oder der Wert ist nur ein Platzhalter).'
     : `Das optionale Paket "${moduleSpecifier}" konnte nicht geladen werden.`;
   const extra = openAiLoadError instanceof Error ? ` (${openAiLoadError.message})` : '';
   console.warn(
     `[genkit] OpenAI-Plugin ist nicht konfiguriert: ${reason}${extra}.` +
-      ' Die KI-Funktionen liefern dann einen Hinweis für fehlende Konfiguration.',
+      ' Die KI-Funktionen liefern dann einen Hinweis fuer fehlende Konfiguration.',
   );
 }
 
@@ -307,3 +318,4 @@ export { ai };
 
 export const missingAiMessage =
   'The AI backend is not configured. Please install @genkit-ai/compat-oai and set OPENAI_API_KEY to enable AI responses.';
+

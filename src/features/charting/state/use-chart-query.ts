@@ -58,14 +58,20 @@ export function useChartQuery({
       return;
     }
 
+    const nextInitialData = initialData;
     setState((prev) => {
-      if (prev.data?.chart.id === initialData.chart.id) {
+      if (!nextInitialData?.chart) {
+        return prev;
+      }
+
+      const prevChartId = prev.data?.chart?.id;
+      if (prevChartId && prevChartId === nextInitialData.chart.id) {
         return prev;
       }
 
       return {
         status: 'success',
-        data: initialData,
+        data: nextInitialData,
         error: null,
         isFetching: prev.isFetching,
       };
@@ -158,7 +164,8 @@ export function useChartQuery({
     }
 
     if (query.isError) {
-      setError(chartId, query.error.message);
+      const message = query.error?.message ?? 'Die Visualisierung ist fehlgeschlagen.';
+      setError(chartId, message);
     } else if (query.data?.status === 'error' && query.data.error) {
       setError(chartId, query.data.error.message);
     }

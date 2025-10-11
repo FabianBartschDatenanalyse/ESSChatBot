@@ -6,7 +6,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { mainAssistant } from "@/src/ai/flows/main-assistant-flow";
+import type { MainAssistantOutput } from "@/src/ai/flows/main-assistant-flow";
 
 import { Form, FormControl, FormField, FormItem } from "@/src/components/ui/form";
 import { Input } from "@/src/components/ui/input";
@@ -428,10 +428,22 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
     try {
       const historyForApi = newMessages.map(({ role, content }) => ({ role, content }));
 
-      const result = await mainAssistant({
-        question: values.question,
-        history: historyForApi,
+      const response = await fetch("/api/main-assistant", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          question: values.question,
+          history: historyForApi,
+        }),
       });
+
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+
+      const result: MainAssistantOutput = await response.json();
 
       console.log("[AskAiPanel] Result from mainAssistant:", result);
 
