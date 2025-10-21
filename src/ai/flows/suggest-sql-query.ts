@@ -10,6 +10,7 @@
 
 import {ai, isAiConfigured} from '@/src/ai/genkit';
 import {z, Message} from 'genkit';
+import { fetchTableColumns } from '@/src/lib/schema-cache';
 
 const MessageSchema = z.object({
   role: z.enum(['user', 'assistant', 'tool']),
@@ -20,6 +21,7 @@ const SuggestSqlQueryInputSchema = z.object({
   question: z.string().describe('The natural language question to generate a SQL query for.'),
   codebook: z.string().describe('Relevant context from the database codebook to use to construct the query.'),
   history: z.array(MessageSchema).optional().describe("The conversation history."),
+  allowedColumns: z.array(z.string()).optional().describe('Column names that exist on the target table.'),
 });
 export type SuggestSqlQueryInput = z.infer<typeof SuggestSqlQueryInputSchema>;
 
@@ -29,7 +31,13 @@ const SuggestSqlQueryOutputSchema = z.object({
 export type SuggestSqlQueryOutput = z.infer<typeof SuggestSqlQueryOutputSchema>;
 
 export async function suggestSqlQuery(input: SuggestSqlQueryInput): Promise<SuggestSqlQueryOutput> {
-  return suggestSqlQueryFlow(input);
+  let allowedColumns: string[] = [];
+  try {
+    allowedColumns = await fetchTableColumns('ESS1');
+  } catch (schemaError) {
+    console.warn('[suggestSqlQuery] Failed to fetch allowed columns.', schemaError);
+  }
+  return suggestSqlQueryFlow({ ...input, allowedColumns });
 }
 
 const prompt = ai.definePrompt({
@@ -43,11 +51,20 @@ const prompt = ai.definePrompt({
 
   **CRITICAL RULES:**
   1.  **Table Name:** The ONLY table you can query is "ESS1". This table name MUST ALWAYS be enclosed in double quotes (e.g., \`FROM "ESS1"\`).
-  2.  **Column Names:** You MUST use the exact column names as they appear in the codebook context. Pay close attention to abbreviations (e.g., 'cntry' for country, 'trstprl' for trust in parliament). DO NOT use intuitive but incorrect names like 'country'. Column names should NOT be quoted.
+  2.  **Column Names:** Use **only** column names that appear in the allowed columns list below. Ideally confirm they also appear in the codebook context. Pay close attention to abbreviations (e.g., 'cntry', 'trstprl'). Column names should NOT be quoted.
   3.  **Casting:** When performing mathematical operations (like AVG, SUM, etc.) on a column, you MUST cast it to a numeric type (e.g., \`CAST(trstprl AS NUMERIC)\`).
   4.  **No Semicolon:** The generated SQL query MUST NOT end with a semicolon.
   5.  **Filtering Missing Values:** When aggregating data (e.g., with AVG, COUNT), you MUST exclude rows with missing or invalid data. The codebook specifies missing values with codes like 77, 88, and 99. These are stored as TEXT, so you MUST compare them as strings. Always include a \`WHERE\` clause to filter these out (e.g., \`WHERE trstprl NOT IN ('77', '88', '99')\`).
   6.  **Empty Query Fallback:** If you cannot determine a valid SQL query from the request, you MUST return an empty string for the 'sqlQuery' field.
+
+  **Allowed Columns (authoritative schema slice):**
+  {{#if allowedColumns}}
+    {{#each allowedColumns}}
+    - {{this}}
+    {{/each}}
+  {{else}}
+    (Schema lookup failed. If the required columns are unclear, return an empty sqlQuery.)
+  {{/if}}
 
   **Conversation History (for context on follow-up questions):**
   {{#if history}}

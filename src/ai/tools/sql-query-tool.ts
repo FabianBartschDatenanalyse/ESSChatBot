@@ -13,6 +13,7 @@ import { executeQuery } from '@/src/lib/data-service';
 import { z, Message } from 'genkit';
 import { suggestSqlQuery, type SuggestSqlQueryOutput } from '@/src/ai/flows/suggest-sql-query';
 import { searchCodebook } from '@/src/lib/vector-search';
+import { fetchTableColumns } from '@/src/lib/schema-cache';
 
 /* ----------------------- Helpers: Plain JSON Sanitizing ----------------------- */
 
@@ -105,6 +106,13 @@ export const executeQueryTool = ai.defineTool(
         .map((result) => `- ${result.content}`)
         .join('\n');
 
+      let allowedColumns: string[] = [];
+      try {
+        allowedColumns = await fetchTableColumns('ESS1');
+      } catch (schemaError) {
+        console.warn('[executeQueryTool] Failed to fetch allowed columns from schema.', schemaError);
+      }
+
       // Step 2: Generate SQL from question + context
       let suggestion: SuggestSqlQueryOutput;
       try {
@@ -127,30 +135,37 @@ export const executeQueryTool = ai.defineTool(
 
       if (!sqlQuery || sqlQuery.trim() === '') {
         // Best-effort template if the LLM did not return SQL
-        const matches = (retrievedContext.match(/\b[a-zA-Z_][a-zA-Z0-9_]{1,30}\b/g) || [])
-          .filter((w) =>
-            ![
-              'the','and','or','for','is','are','of','to','in','by','with','as','on','at',
-              'be','an','a','this','that','these','those','from','not','no','yes','it','its',
-              'if','then','else','when','where','which','was','were','has','have','had','can',
-              'could','should','would','may','might','will','shall','data','variable','codebook',
-              'column','columns','table','ess1','ESS1',
-            ].includes(w.toLowerCase())
-          )
-          .slice(0, 6);
-
-        const prioritized = ['cntry', 'agea', 'gndr'].filter((c) =>
-          retrievedContext.toLowerCase().includes(c)
+        const defaultColumnOrder = ['cntry', 'gndr', 'agea', 'hinctnt', 'stflife'];
+        const columnPool = allowedColumns.length
+          ? allowedColumns
+          : (retrievedContext.match(/\b[a-zA-Z_][a-zA-Z0-9_]{1,30}\b/g) || []);
+        const seen = new Set<string>();
+        const filteredPool: string[] = [];
+        for (const name of columnPool) {
+          const normalized = name.toLowerCase();
+          if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) continue;
+          if (['ess1', 'public'].includes(normalized)) continue;
+          if (seen.has(normalized)) continue;
+          seen.add(normalized);
+          filteredPool.push(name);
+        }
+        const prioritized = defaultColumnOrder.filter((candidate) =>
+          filteredPool.some((name) => name.toLowerCase() === candidate.toLowerCase())
         );
-        const placeholderColumns = Array.from(new Set([...prioritized, ...matches]));
-        const cols = placeholderColumns.length > 0 ? placeholderColumns : ['cntry'];
+        const remainder = filteredPool.filter(
+          (name) => !prioritized.some((cand) => cand.toLowerCase() === name.toLowerCase())
+        );
+        let resolvedCols = [...prioritized, ...remainder].slice(0, 3);
+        if (!resolvedCols.length) {
+          resolvedCols = ['cntry'];
+        }
 
-        const placeholderSelect = cols.map((c) => `CAST(${c} AS NUMERIC) AS ${c}`).join(', ');
+        const placeholderSelect = resolvedCols.join(', ');
         const missingCodes = `'77','88','99'`;
 
         sqlQuery = `SELECT ${placeholderSelect}
 FROM "ESS1"
-WHERE ${cols[0]} NOT IN (${missingCodes})
+WHERE ${resolvedCols[0]} NOT IN (${missingCodes})
 -- TODO: Adjust columns/filters/aggregations to answer: ${JSON.stringify(input.nlQuestion)}
 -- Context excerpt:
 -- ${retrievedContext.slice(0, 400).replace(/\n/g, ' ')}`;

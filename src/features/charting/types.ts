@@ -23,6 +23,8 @@ export const VisualizationChartSchema = z.object({
   config: z.any(),
   title: z.string().optional(),
   caption: z.string().optional(),
+  interpretation: z.string().optional(),
+  imageDataUrl: z.string().optional(),
   sqlQuery: z.string().optional(),
   retrievedContext: z.string().optional(),
 });

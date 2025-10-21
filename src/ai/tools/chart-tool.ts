@@ -4,6 +4,7 @@ import { ai, isAiConfigured, missingAiMessage } from '@/src/ai/genkit';
 import { z } from 'zod';
 import { searchCodebook } from '@/src/lib/vector-search';
 import { executeQuery } from '@/src/lib/data-service';
+import { fetchTableColumns } from '@/src/lib/schema-cache';
 
 // NEU: Font-Handling & Canvas-Rendering
 import fs from 'node:fs/promises';
@@ -211,9 +212,89 @@ const ChartToolOutputSchema = z.object({
   retrievedContext: z.string().optional(),
   title: z.string().optional(),
   caption: z.string().optional(),
+  interpretation: z.string().optional(),
   error: z.string().optional(),
 });
 type ChartToolOutput = z.infer<typeof ChartToolOutputSchema>;
+
+const VALID_IDENTIFIER = /^[A-Za-z0-9_]+$/;
+const normalizeIdent = (value: string | undefined | null) =>
+  (value ?? '').replace(/"/g, '').trim().toLowerCase();
+
+const isKnownIdentifier = (value: string | undefined | null, known: Set<string>) => {
+  if (!value) return true;
+  return known.has(normalizeIdent(value));
+};
+
+const extractSqlAliases = (sql: string): Set<string> => {
+  const aliasRegex = /\bAS\s+"?([A-Za-z0-9_]+)"?/gi;
+  const aliases = new Set<string>();
+  let match: RegExpExecArray | null;
+  while ((match = aliasRegex.exec(sql)) !== null) {
+    aliases.add(match[1].toLowerCase());
+  }
+  return aliases;
+};
+
+const extractQuotedIdentifiers = (sql: string): Set<string> => {
+  const quotedRegex = /"([A-Za-z0-9_]+)"/g;
+  const identifiers = new Set<string>();
+  let match: RegExpExecArray | null;
+  while ((match = quotedRegex.exec(sql)) !== null) {
+    identifiers.add(match[1].toLowerCase());
+  }
+  return identifiers;
+};
+
+const validatePlanAgainstSchema = (
+  plan: z.infer<typeof ChartPlanSchema>,
+  {
+    allowedColumns,
+    aliasSet,
+    tableName,
+    sqlQuery,
+  }: {
+    allowedColumns: string[];
+    aliasSet: Set<string>;
+    tableName: string;
+    sqlQuery: string;
+  }
+): string | null => {
+  const allowedLower = allowedColumns.map(name => name.toLowerCase());
+  const known = new Set<string>([...allowedLower, ...aliasSet]);
+
+  const fieldsToValidate: string[] = [
+    plan.x,
+    plan.y,
+    plan.color,
+    ...(Array.isArray(plan.groupBy) ? plan.groupBy : []),
+    ...(plan.filters ? Object.keys(plan.filters) : []),
+  ].filter(Boolean) as string[];
+
+  const unknownFields = Array.from(
+    new Set(fieldsToValidate.filter(field => !isKnownIdentifier(field, known)))
+  );
+  if (unknownFields.length) {
+    return `Unbekannte Felder im Plan: ${unknownFields.join(', ')}`;
+  }
+
+  const quotedIdentifiers = extractQuotedIdentifiers(sqlQuery);
+  const tableLower = tableName.toLowerCase();
+  const invalidQuoted = Array.from(quotedIdentifiers).filter(identifier => {
+    if (identifier === tableLower || identifier === 'public') return false;
+    return !known.has(identifier);
+  });
+
+  if (invalidQuoted.length) {
+    return `SQL referenziert nicht erlaubte Spalten: ${invalidQuoted.join(', ')}`;
+  }
+
+  if (!quotedIdentifiers.has(tableLower) && !new RegExp(`\\b${tableName}\\b`, 'i').test(sqlQuery)) {
+    return `SQL referenziert nicht die erwartete Tabelle "${tableName}".`;
+  }
+
+  return null;
+};
 
 /** ------------------------------
  *  HILFSFUNKTIONEN (bestehend)
@@ -262,6 +343,272 @@ const prettyAxisTitle = (k?: string) => {
   if (k?.toLowerCase() === 'trstprl') return 'Vertrauen ins Parlament (0–10)';
   if (k?.toLowerCase().startsWith('trst')) return 'Trust (0–10)';
   return k;
+};
+
+const describeFieldLabel = (field?: string) => prettyAxisTitle(field) ?? field ?? '';
+
+const collapseWhitespace = (value?: string) =>
+  typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+
+const stringsEqualIgnoreCase = (a?: string, b?: string) => {
+  const normA = collapseWhitespace(a).toLowerCase();
+  const normB = collapseWhitespace(b).toLowerCase();
+  return normA.length > 0 && normA === normB;
+};
+
+const resolveAggregateLabel = (agg?: string | null) => {
+  if (!agg) return null;
+  switch (agg.toLowerCase()) {
+    case 'avg':
+    case 'mean':
+      return 'Durchschnitt';
+    case 'sum':
+      return 'Summe';
+    case 'count':
+      return 'Anzahl';
+    case 'median':
+      return 'Median';
+    case 'min':
+      return 'Minimum';
+    case 'max':
+      return 'Maximum';
+    case 'none':
+      return null;
+    default:
+      return null;
+  }
+};
+
+const formatNumber = (value: number) => {
+  if (!Number.isFinite(value)) return String(value);
+  const abs = Math.abs(value);
+  if (abs >= 1000) return value.toFixed(0);
+  if (abs >= 100) return value.toFixed(1);
+  if (abs >= 1) return value.toFixed(2);
+  if (abs === 0) return '0';
+  return value.toPrecision(3);
+};
+
+const MAX_INTERPRETATION_ROWS = 40;
+
+type AxisFieldInfo = {
+  field: string;
+  label?: string;
+};
+
+type ChartInterpretationArgs = {
+  question: string;
+  chartType: z.infer<typeof ChartPlanSchema>['chartType'];
+  axis: {
+    x?: AxisFieldInfo;
+    y?: AxisFieldInfo;
+    color?: AxisFieldInfo;
+  };
+  aggregateLabel?: string | null;
+  dataValues: any[];
+};
+
+type NumericSummary = {
+  field: string;
+  count: number;
+  min: number;
+  max: number;
+  mean: number;
+  median: number;
+};
+
+type CategoricalSummary = {
+  field: string;
+  total: number;
+  topValues: Array<{ value: string; count: number; share: number }>;
+};
+
+const summarizeNumericField = (rows: any[], field: string): NumericSummary | null => {
+  const values = rows
+    .map(row => row?.[field])
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const total = sorted.reduce((sum, value) => sum + value, 0);
+  const median =
+    sorted.length % 2 === 1
+      ? sorted[(sorted.length - 1) / 2]
+      : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+  return {
+    field,
+    count: sorted.length,
+    min: sorted[0],
+    max: sorted[sorted.length - 1],
+    mean: total / sorted.length,
+    median,
+  };
+};
+
+const summarizeCategoricalField = (rows: any[], field: string): CategoricalSummary | null => {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const raw = row?.[field];
+    if (raw == null || raw === '') continue;
+    const key = String(raw);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const total = Array.from(counts.values()).reduce((sum, value) => sum + value, 0);
+  if (!total) return null;
+  const topValues = Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([value, count]) => ({
+      value,
+      count,
+      share: (count / total) * 100,
+    }));
+  return { field, total, topValues };
+};
+
+const buildInterpretationPrompt = ({
+  question,
+  chartType,
+  axis,
+  aggregateLabel,
+  dataValues,
+}: ChartInterpretationArgs): string | null => {
+  if (!dataValues.length) return null;
+
+  const fieldSet = new Set<string>();
+  if (axis.x?.field) fieldSet.add(axis.x.field);
+  if (axis.y?.field) fieldSet.add(axis.y.field);
+  if (axis.color?.field) fieldSet.add(axis.color.field);
+
+  const fields = Array.from(fieldSet);
+  if (!fields.length) return null;
+
+  const sampledRows = dataValues.slice(0, MAX_INTERPRETATION_ROWS).map(row => {
+    const record: Record<string, unknown> = {};
+    for (const name of fields) {
+      if (Object.prototype.hasOwnProperty.call(row, name)) {
+        record[name] = row[name];
+      }
+    }
+    return record;
+  });
+
+  const numericSummaries = fields
+    .map(field => summarizeNumericField(dataValues, field))
+    .filter((summary): summary is NumericSummary => summary != null);
+  const categoricalSummaries = fields
+    .map(field => summarizeCategoricalField(dataValues, field))
+    .filter((summary): summary is CategoricalSummary => summary != null);
+
+  const axisLines: string[] = [];
+  if (axis.x) axisLines.push(`- X: ${axis.x.label ?? axis.x.field} (Feld: ${axis.x.field})`);
+  if (axis.y) axisLines.push(`- Y: ${axis.y.label ?? axis.y.field} (Feld: ${axis.y.field})`);
+  if (axis.color)
+    axisLines.push(`- Farbe: ${axis.color.label ?? axis.color.field} (Feld: ${axis.color.field})`);
+
+  const numericLines = numericSummaries.length
+    ? numericSummaries
+        .map(
+          summary =>
+            `- ${summary.field}: n=${summary.count}, Mittelwert ${formatNumber(summary.mean)}, Median ${formatNumber(summary.median)}, Min ${formatNumber(summary.min)}, Max ${formatNumber(summary.max)}`
+        )
+        .join('\n')
+    : '- keine numerischen Felder erkannt';
+
+  const categoricalLines = categoricalSummaries.length
+    ? categoricalSummaries
+        .map(summary => {
+          const top = summary.topValues
+            .map(
+              entry =>
+                `${entry.value} (${entry.count}, ${formatNumber(entry.share)}%)`
+            )
+            .join(', ');
+          return `- ${summary.field}: ${top}`;
+        })
+        .join('\n')
+    : '- keine kategorialen Felder erkannt';
+
+  const sampleJson = JSON.stringify(sampledRows, null, 2);
+
+  return `
+Du bist ein datenanalytischer Assistent. Analysiere die bereitgestellten Ergebnisse und formuliere eine fundierte Interpretation für die Nutzerfrage.
+
+Frage: "${question}"
+Diagrammtyp: ${chartType}
+Aggregation: ${aggregateLabel ?? 'keine'}
+Anzahl Datensätze: ${dataValues.length}
+Achsen:
+${axisLines.join('\n') || '- keine Angaben'}
+
+Numerische Felder:
+${numericLines}
+
+Kategoriale Felder:
+${categoricalLines}
+
+Beispielhafte Datenzeilen (${sampledRows.length} von ${dataValues.length}):
+${sampleJson}
+
+Erstelle eine inhaltliche Interpretation auf Basis dieser Informationen. Antworte in derselben Sprache wie die Frage. Gehe auf auffällige Muster, Vergleiche oder Unterschiede ein und erwähne bei Bedarf Unsicherheiten (z. B. geringe Fallzahlen oder fehlende Daten). Die Interpretation darf höchstens 7 Sätze umfassen. Wiederhole den Diagrammtitel nicht wörtlich.
+`.trim();
+};
+
+const limitSentenceCount = (value: string, maxSentences: number) => {
+  if (!value) return value;
+  if (maxSentences <= 0) return '';
+
+  const sentenceRegex = /[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g;
+  const segments: string[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = sentenceRegex.exec(value)) !== null && segments.length < maxSentences) {
+    segments.push(match[0]);
+    if (segments.length === maxSentences) break;
+  }
+
+  if (!segments.length) return value.trim();
+
+  const remainder =
+    sentenceRegex.lastIndex < value.length ? value.slice(sentenceRegex.lastIndex).trim() : '';
+  const truncated = segments.length === maxSentences && remainder.length > 0;
+  if (!truncated) return value.trim();
+
+  return segments.join('').trim();
+};
+
+async function generateChartInterpretation(args: ChartInterpretationArgs): Promise<string | undefined> {
+  try {
+    const prompt = buildInterpretationPrompt(args);
+    if (!prompt) return undefined;
+    const response = await ai.generate({
+      model: 'openai/gpt-4o-mini',
+      prompt,
+    });
+    const text = response.text?.trim();
+    const limited = text ? limitSentenceCount(text, 7) : undefined;
+    return limited && limited.length ? limited : undefined;
+  } catch (error) {
+    console.error('[chart-tool] Interpretation konnte nicht erzeugt werden.', error);
+    return undefined;
+  }
+}
+
+const buildCaptionText = (segments: Array<string | undefined>, titleText?: string) => {
+  const filtered = segments.map(collapseWhitespace).filter(Boolean);
+  if (!filtered.length) return undefined;
+  const caption = filtered.join(' | ');
+  if (stringsEqualIgnoreCase(caption, titleText)) {
+    return filtered[0];
+  }
+  return caption;
+};
+
+const ensureSingleLine = (value?: string, maxLength = 160) => {
+  const normalized = collapseWhitespace(value);
+  if (!normalized) return undefined;
+  if (normalized.length <= maxLength) return normalized;
+  if (maxLength < 2) return normalized.slice(0, maxLength);
+  return `${normalized.slice(0, maxLength - 1)}…`;
 };
 
 const ZERO_TO_TEN_DOMAIN: [number, number] = [0, 10];
@@ -344,13 +691,32 @@ const sqlHasAggregate = (sql?: string) =>
 /** ------------------------------
  *  PLANNER-PROMPT (bestehend)
  *  ------------------------------ */
-const plannerPrompt = (q: string, codebook: string) => `
+type PlannerPromptArgs = {
+  question: string;
+  codebook: string;
+  allowedColumns: string[];
+  tableName: string;
+  previousError?: string;
+};
+
+const formatAllowedColumns = (columns: string[]) =>
+  columns.map(name => `  - ${name}`).join('\n');
+
+const plannerPrompt = ({
+  question,
+  codebook,
+  allowedColumns,
+  tableName,
+  previousError,
+}: PlannerPromptArgs) => `
 Du bist ein Visual Analytics Assistent für die ESS-Datenbank.
 
 AUFGABE:
 - Erzeuge einen geeigneten Diagramm-Plan (ChartPlan) **als JSON-OBJEKT** und einen SQL-Query, um die Daten abzurufen.
 - Benutze NUR Spaltennamen exakt wie im Codebook.
-- Tabelle ist IMMER "ESS1" (mit doppelten Anführungszeichen).
+- Tabelle: "${tableName}" (mit doppelten Anführungszeichen).
+- Erlaubte Spalten (vollständige Liste, **verwende ausschließlich diese Namen**):
+${formatAllowedColumns(allowedColumns)}
 - Bei Aggregationen: CAST(...) als NUMERIC und fehlende Codes ('77','88','99','555','666','777','888','999','9999') ausschließen.
 - Typische Mappings:
   - Balken: kategoriale Dimension + Aggregat der Metrik. Sowohl (x=Kategorie,y=Aggregat) als auch (y=Kategorie,x=Aggregat) sind erlaubt.
@@ -360,6 +726,8 @@ AUFGABE:
   - Pie: Kategorie auf color (z. B. cntry), Metrik aggregiert auf theta (z. B. SUM(...) AS value). Wenn unklar, nutze COUNT(*) AS value.
 - Wenn unklar, nutze bar chart mit AVG(...) nach "cntry".
 - Wenn du aggregierst, gib dem Aggregat IMMER einen eindeutigen Alias (z. B. "avg_trust" oder "value") und verwende genau diesen Alias im Chart-Feld.
+
+${previousError ? `HINWEIS: Der vorherige Vorschlag war ungültig (${previousError}). Bitte liefere einen neuen Plan, der diese Vorgabe respektiert.\n` : ''}
 
 WICHTIG (AUSGABEFORMAT):
 - **Gib ausschließlich ein JSON-OBJEKT der Instanz** zurück, KEIN JSON-Schema.
@@ -377,7 +745,7 @@ WICHTIG (AUSGABEFORMAT):
 }
 
 FRAGE:
-"${q}"
+"${question}"
 
 CODEBOOK KONTEXT (maßgeblich):
 ${codebook}
@@ -665,27 +1033,72 @@ const chartToolInternal = ai.defineTool(
       const codebookHits = await searchCodebook(input.nlQuestion, 7);
       const retrievedContext = codebookHits.map((r: any) => `- ${r.content}`).join('\n');
 
-      // 2) Plan + SQL via LLM (INSTANCE required)
-      const planResp = await ai.generate({
-        model: 'openai/gpt-4o',
-        prompt: plannerPrompt(input.nlQuestion, retrievedContext),
-        output: { schema: ChartPlanSchema },
-      });
-
-      const plan = planResp.output as z.infer<typeof ChartPlanSchema> as any;
-
-      // JSON-Schema-Verwechslung abfangen
-      if ((plan as any)?.properties || (plan as any)?.$schema) {
-        return {
-          error:
-            'Planner lieferte ein JSON-Schema statt einer Instanz. Präzisiere bitte kurz die Anfrage (z. B. "AVG trstprl nach cntry als Balkendiagramm").',
-          retrievedContext,
-        };
+      const tableName = 'ESS1';
+      let allowedColumns: string[];
+      try {
+        allowedColumns = await fetchTableColumns(tableName);
+      } catch (schemaError: any) {
+        const message = schemaError?.message ?? String(schemaError);
+        return { error: `Schema konnte nicht geladen werden: ${message}`, retrievedContext };
       }
 
-      const sqlQuery = plan?.sqlQuery;
-      if (!sqlQuery) {
-        return { error: 'LLM lieferte keinen SQL-Query.', retrievedContext };
+      const MAX_PLANNER_ATTEMPTS = 2;
+      let plan: z.infer<typeof ChartPlanSchema> | null = null;
+      let sqlQuery: string | undefined;
+      let previousError: string | undefined;
+
+      for (let attempt = 0; attempt < MAX_PLANNER_ATTEMPTS; attempt++) {
+        const planResp = await ai.generate({
+          model: 'openai/gpt-4o',
+          prompt: plannerPrompt({
+            question: input.nlQuestion,
+            codebook: retrievedContext,
+            allowedColumns,
+            tableName,
+            previousError,
+          }),
+          output: { schema: ChartPlanSchema },
+        });
+
+        const candidatePlan = planResp.output as z.infer<typeof ChartPlanSchema> as any;
+
+        if ((candidatePlan as any)?.properties || (candidatePlan as any)?.$schema) {
+          return {
+            error:
+              'Planner lieferte ein JSON-Schema statt einer Instanz. Präzisiere bitte kurz die Anfrage (z. B. "AVG trstprl nach cntry als Balkendiagramm").',
+            retrievedContext,
+          };
+        }
+
+        const candidateSql = candidatePlan?.sqlQuery;
+        if (!candidateSql) {
+          previousError = 'Plan enthielt keinen SQL-Query.';
+          continue;
+        }
+
+        const aliasSet = extractSqlAliases(candidateSql);
+        const validationError = validatePlanAgainstSchema(candidatePlan, {
+          allowedColumns,
+          aliasSet,
+          tableName,
+          sqlQuery: candidateSql,
+        });
+
+        if (!validationError) {
+          plan = candidatePlan;
+          sqlQuery = candidateSql;
+          previousError = undefined;
+          break;
+        }
+
+        previousError = validationError;
+      }
+
+      if (!plan || !sqlQuery) {
+        const errorMessage =
+          previousError ??
+          'LLM lieferte keinen gültigen Plan. Bitte präzisiere die Anfrage oder versuche es erneut.';
+        return { error: errorMessage, retrievedContext };
       }
 
       // 3) Daten abfragen
@@ -762,10 +1175,10 @@ const chartToolInternal = ai.defineTool(
         aggTitlePrefix = 'Durchschnitt von ';
       }
 
-      // ---------- PIE: eigene Spezifikation & früher Return ----------
+      // ---------- PIE: eigene Spezifikation & frueher Return ----------
       if (plan.chartType === 'pie') {
         const categoryFieldPie = plan.x;
-        const metricFieldPie = plan.y; // alias aus SQL (z. B. "value") – kann fehlen
+        const metricFieldPie = plan.y; // alias aus SQL (z. B. "value") - kann fehlen
 
         const tooltipPie: any[] = [
           { field: categoryFieldPie, type: 'nominal', title: prettyAxisTitle(categoryFieldPie) },
@@ -776,16 +1189,64 @@ const chartToolInternal = ai.defineTool(
           tooltipPie.push({ aggregate: 'count', type: 'quantitative', title: 'Anzahl' });
         }
 
-        const resolvedTitle =
-          plan.title ??
-          (`${metricFieldPie ?? 'Anzahl'} nach ${prettyAxisTitle(categoryFieldPie)}`);
+        const fallbackPieTitle =
+          `${metricFieldPie ?? 'Anzahl'} nach ${prettyAxisTitle(categoryFieldPie)}`;
+        const resolvedTitle = plan.title ?? fallbackPieTitle;
+        const titleText: string | undefined =
+          typeof resolvedTitle === 'string'
+            ? resolvedTitle
+            : typeof (resolvedTitle as any)?.text === 'string'
+            ? (resolvedTitle as any).text
+            : undefined;
+        const aggregateLabel = resolveAggregateLabel(aggregateMethod);
+        const axisParts: string[] = [`Kategorie: ${describeFieldLabel(categoryFieldPie)}`];
+        if (metricFieldPie) axisParts.push(`Wert: ${describeFieldLabel(metricFieldPie)}`);
+        const axisSegment =
+          axisParts.length ? `Segmente (${axisParts.join(' - ')})` : undefined;
+        const aggregationSegment =
+          aggregateLabel ? `Aggregation: ${aggregateLabel}` : undefined;
+        const narrative = await generateChartInterpretation({
+          question: input.nlQuestion,
+          chartType: plan.chartType,
+          aggregateLabel,
+          dataValues,
+          axis: {
+            x: { field: categoryFieldPie, label: describeFieldLabel(categoryFieldPie) },
+            y: metricFieldPie
+              ? { field: metricFieldPie, label: describeFieldLabel(metricFieldPie) }
+              : undefined,
+          },
+        });
+        const interpretation = narrative?.trim();
+        const subtitleSource = buildCaptionText(
+          [
+            `Basis: ${dataValues.length} Faelle aus ESS1`,
+            aggregationSegment,
+            axisSegment,
+          ],
+          titleText,
+        );
+        const providedSubtitle =
+          typeof resolvedTitle === 'object' && resolvedTitle
+            ? (resolvedTitle as any).subtitle
+            : undefined;
+        const subtitle = ensureSingleLine(providedSubtitle ?? subtitleSource);
+        const titleSpec =
+          typeof resolvedTitle === 'string'
+            ? { text: resolvedTitle }
+            : { ...(resolvedTitle as Record<string, any>) };
+        if (subtitle) {
+          titleSpec.subtitle = subtitle;
+        } else if (titleSpec.subtitle) {
+          titleSpec.subtitle = ensureSingleLine(titleSpec.subtitle);
+        }
 
         const vegaLiteSpec: any = {
           $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
           data: { values: dataValues },
           width: 720,
           height: 420,
-          title: resolvedTitle,
+          title: titleSpec,
           layer: [
             {
               mark: { type: 'arc', innerRadius: 0 },
@@ -844,17 +1305,14 @@ const chartToolInternal = ai.defineTool(
           };
         }
 
-        const caption =
-          plan.title ||
-          `Diagramm: pie von ${metricFieldPie ?? 'count'} über ${categoryFieldPie}`;
-
         return {
           imageDataUrl,
           vegaLiteSpec: JSON.parse(JSON.stringify(vegaLiteSpec)),
           sqlQuery,
           retrievedContext,
-          title: plan.title,
-          caption,
+          title: titleText && titleText.trim() ? titleText : fallbackPieTitle,
+          caption: subtitle,
+          interpretation,
         };
       }
       // ---------- ENDE PIE-Zweig ----------
@@ -944,10 +1402,16 @@ const chartToolInternal = ai.defineTool(
       const fallbackTitle =
         (`${prettyAxisTitle(plan.y) ?? ''}${plan.y ? ' nach ' : ''}${prettyAxisTitle(plan.x) ?? ''}`).trim() || 'Diagramm';
       const resolvedTitle = plan.title ?? fallbackTitle;
+      const titleText: string | undefined =
+        typeof resolvedTitle === 'string'
+          ? resolvedTitle
+          : typeof (resolvedTitle as any)?.text === 'string'
+          ? (resolvedTitle as any).text
+          : undefined;
       const titleSpec =
         typeof resolvedTitle === 'string'
           ? { text: resolvedTitle }
-          : resolvedTitle;
+          : { ...(resolvedTitle as Record<string, any>) };
 
       const vegaLiteSpec: any = {
         $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
@@ -1008,6 +1472,47 @@ const chartToolInternal = ai.defineTool(
         },
       };
 
+      const aggregateLabel = resolveAggregateLabel(aggregateMethod);
+      const axisParts: string[] = [`X: ${describeFieldLabel(plan.x)}`];
+      if (plan.y) axisParts.push(`Y: ${describeFieldLabel(plan.y)}`);
+      if (safeColor) axisParts.push(`Farbe: ${describeFieldLabel(safeColor)}`);
+      const axisSegment =
+        axisParts.length ? `Achsen (${axisParts.join(' - ')})` : undefined;
+      const aggregationSegment =
+        aggregateLabel && metricField
+          ? `Aggregation: ${aggregateLabel} fuer ${describeFieldLabel(metricField)}`
+          : undefined;
+      const narrative = await generateChartInterpretation({
+        question: input.nlQuestion,
+        chartType: plan.chartType,
+        aggregateLabel,
+        dataValues,
+        axis: {
+          x: { field: plan.x, label: describeFieldLabel(plan.x) },
+          y: plan.y ? { field: plan.y, label: describeFieldLabel(plan.y) } : undefined,
+          color: safeColor ? { field: safeColor, label: describeFieldLabel(safeColor) } : undefined,
+        },
+      });
+      const interpretation = narrative?.trim();
+      const subtitleSource = buildCaptionText(
+        [
+          `Basis: ${dataValues.length} Faelle aus ESS1`,
+          aggregationSegment,
+          axisSegment,
+        ],
+        titleText,
+      );
+      const providedSubtitle =
+        typeof resolvedTitle === 'object' && resolvedTitle
+          ? (resolvedTitle as any).subtitle
+          : undefined;
+      const subtitle = ensureSingleLine(providedSubtitle ?? subtitleSource);
+      if (subtitle) {
+        titleSpec.subtitle = subtitle;
+      } else if (titleSpec.subtitle) {
+        titleSpec.subtitle = ensureSingleLine(titleSpec.subtitle);
+      }
+
       let imageDataUrl: string;
       try {
         imageDataUrl = await renderVegaLiteToPngDataUrl(vegaLiteSpec);
@@ -1019,19 +1524,14 @@ const chartToolInternal = ai.defineTool(
         };
       }
 
-      const caption =
-        plan.title ||
-        `Diagramm: ${plan.chartType} von ${plan.y ?? '(n/a)'} über ${plan.x}${
-          safeColor && cols.includes(safeColor) ? `, farblich nach ${safeColor}` : ''
-        }`;
-
       return {
         imageDataUrl,
         vegaLiteSpec: JSON.parse(JSON.stringify(vegaLiteSpec)),
         sqlQuery,
         retrievedContext,
-        title: plan.title,
-        caption,
+        title: titleText && titleText.trim() ? titleText : fallbackTitle,
+        caption: subtitle,
+        interpretation,
       };
     } catch (e: any) {
       return { error: `chartTool Fehler: ${e?.message ?? String(e)}` };

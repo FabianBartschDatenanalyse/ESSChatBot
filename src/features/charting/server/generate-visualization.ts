@@ -76,6 +76,8 @@ export async function generateVisualization(
         config: chart.vegaLiteSpec,
         title: chart.title,
         caption: chart.caption,
+        interpretation: chart.interpretation ?? undefined,
+        imageDataUrl: chart.imageDataUrl ?? undefined,
         sqlQuery: chart.sqlQuery ?? undefined,
         retrievedContext: chart.retrievedContext ?? undefined,
       },

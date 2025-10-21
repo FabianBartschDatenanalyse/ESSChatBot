@@ -17,7 +17,9 @@ import { Loader2, Send, Code2, Database } from "lucide-react";
 import { type Conversation, type Message } from "@/src/lib/types";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/src/components/ui/accordion";
 import { ChartShell } from "@/src/features/charting/components/chart-shell";
+import { ChartDownloadButton } from "@/src/features/charting/components/chart-download-button";
 import { VegaChart } from "@/src/features/charting/components/vega-chart";
+import { RegressionSummary } from "@/src/features/statistics/components/regression-summary";
 
 interface InlineRenderResult {
   nodes: React.ReactNode[];
@@ -453,6 +455,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
         sqlQuery: result.sqlQuery,
         retrievedContext: result.retrievedContext,
         chart: result.chart,
+        statistics: result.statistics,
       };
 
       const finalMessages = [...newMessages, assistantMessage];
@@ -480,6 +483,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
             const dataUrl = extractFirstDataPng(message.content);
 
             const rendered = renderedMessages[index];
+            const showWideChart = message.role === "assistant" && Boolean(message.chart);
 
             return (
               <div
@@ -504,7 +508,9 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                 )}
 
                 <div
-                  className={`rounded-lg p-3 max-w-[80%] ${
+                  className={`rounded-lg p-3 ${
+                    showWideChart ? "flex-1 w-full max-w-[80%]" : "max-w-[80%]"
+                  } ${
                     message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
                   }`}
                 >
@@ -532,7 +538,17 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
 
                   {message.role === "assistant" && message.chart && (
                     <div className="mt-4 space-y-3">
-                      <ChartShell title={message.chart.title} caption={message.chart.caption}>
+                      <ChartShell
+                        title={message.chart.title}
+                        caption={message.chart.caption}
+                        actions={
+                          <ChartDownloadButton
+                            imageDataUrl={message.chart.imageDataUrl}
+                            title={message.chart.title}
+                            chartId={message.chart.id}
+                          />
+                        }
+                      >
                         <VegaChart
                           chartId={message.chart.id}
                           request={message.chart.request}
@@ -541,11 +557,18 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                             config: message.chart.config,
                             title: message.chart.title,
                             caption: message.chart.caption,
+                            imageDataUrl: message.chart.imageDataUrl,
                             sqlQuery: message.chart.sqlQuery,
                             retrievedContext: message.chart.retrievedContext,
                           }}
                         />
                       </ChartShell>
+                    </div>
+                  )}
+
+                  {message.statistics && (
+                    <div className="mt-3 w-full">
+                      <RegressionSummary analysis={message.statistics} />
                     </div>
                   )}
 

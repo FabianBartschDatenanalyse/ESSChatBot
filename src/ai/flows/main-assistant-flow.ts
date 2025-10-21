@@ -19,7 +19,9 @@ import { searchCodebook } from '@/src/lib/vector-search';
 import { statisticsTool } from '@/src/ai/tools/statistics-tool';
 import { generateVisualization } from '@/src/features/charting/server/generate-visualization';
 import { VisualizationChartMessageSchema } from '@/src/features/charting/types';
+import { RegressionAnalysisSchema } from '@/src/features/statistics/types';
 import { randomUUID } from 'crypto';
+import { fetchTableColumns } from '@/src/lib/schema-cache';
 
 // ✨ NEU: Chart-Tool importieren
 
@@ -43,6 +45,7 @@ const MainAssistantOutputSchema = z.object({
   sqlQuery: z.string().optional().describe('The SQL query that was executed.'),
   retrievedContext: z.string().optional().describe('The context retrieved from the vector database.'),
   chart: VisualizationChartMessageSchema.optional(),
+  statistics: RegressionAnalysisSchema.optional(),
 });
 export type MainAssistantOutput = z.infer<typeof MainAssistantOutputSchema>;
 
@@ -128,12 +131,15 @@ const mainAssistantFlow = ai.defineFlow(
         };
       }
 
-      const caption =
+      const interpretation =
+        visualization.chart.interpretation?.trim();
+      const subtitle =
         visualization.chart.caption ??
         'Hier ist die automatisch generierte Visualisierung. Du kannst sie mit den Tools im Interface weiter anpassen.';
+      const answer = interpretation && interpretation.length > 0 ? interpretation : subtitle;
 
       return {
-        answer: caption,
+        answer,
         sqlQuery: visualization.chart.sqlQuery,
         retrievedContext: visualization.chart.retrievedContext,
         chart: {
@@ -154,18 +160,69 @@ const mainAssistantFlow = ai.defineFlow(
       return { answer: directAnswerResponse.text };
     }
 
-    // Step 2: Unabhängig von SQL zuerst Codebook-Kontext holen
+    // Step 2: Fetch schema information for available columns
+    let allowedColumns: string[] = [];
+    try {
+      allowedColumns = await fetchTableColumns('ESS1');
+    } catch (schemaError) {
+      console.warn('[mainAssistantFlow] Failed to fetch table columns for regression planning.', schemaError);
+    }
+    const normalizedAllowedColumns = new Set(allowedColumns.map((c) => c.trim().toLowerCase()));
+
+    // Step 3: Unabhängig von SQL zuerst Codebook-Kontext holen
     const searchResults = await searchCodebook(reformulatedQuestion, 7);
-    const retrievedContext = searchResults.map((r: any) => `- ${r.content}`).join('\n');
+    const formatBlock = (block: string) => {
+      const safeBlock = (block ?? '').trimEnd();
+      return `- ${safeBlock.replace(/\n/g, '\n  ')}`;
+    };
+    const annotateBlockWithSchema = (block: string) => {
+      if (!normalizedAllowedColumns.size) {
+        return block;
+      }
+      return block
+        .split('\n')
+        .map((line) => {
+          const trimmedLine = line.trimStart();
+          const match = trimmedLine.match(/^([A-Za-z0-9_]+)/);
+          if (!match) {
+            return line;
+          }
+          const rawName = match[1];
+          const normalized = rawName.replace(/[^A-Za-z0-9_]/g, '').toLowerCase();
+          if (!normalized) {
+            return line;
+          }
+          if (normalizedAllowedColumns.has(normalized)) {
+            return line;
+          }
+          return `${line} [NOT_IN_SCHEMA]`;
+        })
+        .join('\n');
+    };
+
+    const rawContextBlocks = searchResults.map((r: any) => String(r.content || ''));
+    const retrievedContext = rawContextBlocks.map((block) => formatBlock(block)).join('\n');
     console.log('[mainAssistantFlow] Retrieved context length:', retrievedContext.length);
 
-    // Step 3: Prüfen, ob Regression gewünscht ist (nur mit Kontext arbeiten)
+    const annotatedContext = rawContextBlocks
+      .map((block) => formatBlock(annotateBlockWithSchema(block)))
+      .join('\n');
+    const annotatedContextWithColumns = allowedColumns.length
+      ? `${annotatedContext}\n\nAvailable columns in the database:\n${allowedColumns.map((c) => `- ${c}`).join('\n')}`
+      : annotatedContext;
+
+    const formattedAllowedColumns =
+      allowedColumns.length > 0 ? allowedColumns.map((c) => `- ${c}`).join('\n') : '(Schema lookup failed)';
+
     const statsPrompt = `Plan a statistical regression only if the question requests regression/effects/prediction/coefficients.
 
 STRICT RULES:
 - Use variable names EXACTLY as they appear in the CODEBOOK CONTEXT below.
 - Do NOT invent, rename, or reformat variable names.
-- If you cannot find required variables in the context, set needsRegression=false and (optionally) include a reason.
+- Only use column names that appear in the ALLOWED COLUMNS list below. If a required variable is missing from both the context and the allowed list, set needsRegression=false and provide a brief reason.
+
+ALLOWED COLUMNS (from Supabase schema for "ESS1"):
+${formattedAllowedColumns}
 
 Return JSON with keys: needsRegression, analysisType, target, features, filters.
 
@@ -173,7 +230,7 @@ QUESTION:
 "${reformulatedQuestion}"
 
 CODEBOOK CONTEXT (authoritative variable names):
-${retrievedContext}`;
+${annotatedContextWithColumns}`;
 
     let statsOutput: any | null = null;
     try {
@@ -196,6 +253,16 @@ ${retrievedContext}`;
         } as any);
         console.log('[mainAssistantFlow] statisticsTool output:', JSON.stringify(statsOutput, null, 2));
 
+        let structuredStatistics: z.infer<typeof RegressionAnalysisSchema> | undefined;
+        if (statsOutput?.result) {
+          const parsed = RegressionAnalysisSchema.safeParse(statsOutput.result);
+          if (parsed.success) {
+            structuredStatistics = parsed.data;
+          } else {
+            console.warn('[mainAssistantFlow] Failed to parse statistics result:', parsed.error);
+          }
+        }
+
         const finalPrompt = `You are an expert data analyst and assistant for the ESS.
 User's original question: "${input.question}"
 Reformulated question: "${reformulatedQuestion}"
@@ -212,6 +279,7 @@ Write a clear, user-friendly answer based on the regression result. If there was
           answer,
           sqlQuery: String(statsOutput?.sqlQuery || ''), // SQL aus statisticsTool, falls vorhanden
           retrievedContext,
+          statistics: structuredStatistics,
         };
       }
     } catch (e) {

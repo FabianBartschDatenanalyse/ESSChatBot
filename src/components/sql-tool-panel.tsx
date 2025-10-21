@@ -14,6 +14,7 @@ import { Loader2, Play } from 'lucide-react';
 import { useToast } from '@/src/hooks/use-toast';
 import { DataTable } from './data-table';
 import { ChartShell } from '@/src/features/charting/components/chart-shell';
+import { ChartDownloadButton } from '@/src/features/charting/components/chart-download-button';
 import { VegaChart } from '@/src/features/charting/components/vega-chart';
 import { useChartStore } from '@/src/features/charting/state/chart-store';
 import { useChartQuery } from '@/src/features/charting/state/use-chart-query';
@@ -168,6 +169,13 @@ export default function SqlToolPanel() {
                 <ChartShell
                   title={chartEntry?.chart?.title ?? 'Automatisch generierte Visualisierung'}
                   caption={chartEntry?.chart?.caption}
+                  actions={
+                    <ChartDownloadButton
+                      imageDataUrl={chartEntry?.chart?.imageDataUrl}
+                      title={chartEntry?.chart?.title}
+                      chartId={chartDescriptor.id}
+                    />
+                  }
                 >
                   <VegaChart chartId={chartDescriptor.id} request={chartDescriptor.request} />
                 </ChartShell>

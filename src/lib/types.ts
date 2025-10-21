@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { VisualizationChartMessageSchema } from '@/src/features/charting/types';
+import { RegressionAnalysisSchema } from '@/src/features/statistics/types';
 
 /**
  * Defines the structure for a single message in a conversation.
@@ -11,6 +12,7 @@ export const MessageSchema = z.object({
   sqlQuery: z.string().optional(),
   retrievedContext: z.string().optional(),
   chart: VisualizationChartMessageSchema.optional(),
+  statistics: RegressionAnalysisSchema.optional(),
 });
 export type Message = z.infer<typeof MessageSchema>;
 
