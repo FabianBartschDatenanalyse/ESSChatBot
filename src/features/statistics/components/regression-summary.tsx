@@ -1,8 +1,9 @@
 ﻿import React from 'react';
 import {
-  RegressionAnalysis,
   LinearRegressionAnalysis,
   RandomForestRegressionAnalysis,
+  IndependentTTestAnalysis,
+  StatisticsAnalysis,
 } from '@/src/features/statistics/types';
 import {
   Card,
@@ -23,7 +24,7 @@ import { Badge } from '@/src/components/ui/badge';
 import { Separator } from '@/src/components/ui/separator';
 
 type RegressionSummaryProps = {
-  analysis: RegressionAnalysis;
+  analysis: StatisticsAnalysis;
 };
 
 const formatNumber = (
@@ -363,9 +364,213 @@ const RandomForestSummary: React.FC<{ analysis: RandomForestRegressionAnalysis }
   </Card>
 );
 
+const TTestSummary: React.FC<{ analysis: IndependentTTestAnalysis }> = ({
+  analysis,
+}) => {
+  const { groups, difference, effectSize, assumptions, target, groupingVariable } = analysis;
+  const confidencePercent = Math.round(difference.confidenceInterval.level * 100);
+
+  const summaryMetrics = [
+    {
+      label: `Mean difference (${difference.referenceGroup} - ${difference.comparisonGroup})`,
+      value: formatNumber(difference.meanDifference, {
+        minimumFractionDigits: 3,
+        maximumFractionDigits: 3,
+      }),
+      isSignificance: false,
+    },
+    {
+      label: 't-statistic',
+      value: formatNumber(difference.tStatistic, {
+        minimumFractionDigits: 3,
+        maximumFractionDigits: 3,
+      }),
+      isSignificance: false,
+    },
+    {
+      label: 'df',
+      value: formatNumber(difference.degreesOfFreedom, {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      }),
+      isSignificance: false,
+    },
+    {
+      label: 'p-value',
+      value: formatPValue(difference.pValue),
+      isSignificance: false,
+    },
+    {
+      label: 'Significance',
+      value: difference.significance ?? '-',
+      isSignificance: Boolean(difference.significance),
+    },
+    {
+      label: `${confidencePercent}% CI`,
+      value: formatInterval(
+        difference.confidenceInterval.lower,
+        difference.confidenceInterval.upper,
+      ),
+      isSignificance: false,
+    },
+  ];
+
+  const formatEffect = (value: number | null) =>
+    value === null || Number.isNaN(value)
+      ? '�?"'
+      : formatNumber(value, { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+
+  const hasEffectSize =
+    (effectSize.cohensD !== null && !Number.isNaN(effectSize.cohensD)) ||
+    (effectSize.hedgesG !== null && !Number.isNaN(effectSize.hedgesG));
+
+  return (
+    <Card className="border border-border/60 bg-card/70 shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-semibold">
+          Independent t-Test
+        </CardTitle>
+        <CardDescription>
+          Compares <code className="font-mono text-xs">{target}</code> across groups of{' '}
+          <code className="font-mono text-xs">{groupingVariable}</code>. Difference is calculated
+          as reference minus comparison group.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <section>
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+            Key results
+          </h3>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {summaryMetrics.map((metric) => (
+              <div
+                key={metric.label}
+                className="rounded-md border border-border/50 bg-background/40 px-3 py-2"
+              >
+                <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
+                  {metric.label}
+                </p>
+                <p className="text-sm font-semibold text-foreground">
+                  {metric.isSignificance && metric.value !== '-' ? (
+                    <Badge variant="outline">{metric.value}</Badge>
+                  ) : (
+                    metric.value
+                  )}
+                </p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 text-xs text-muted-foreground">
+            <p>
+              Significance legend:
+            </p>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {legendItems.map((item) => (
+                <span key={item.symbol} className="flex items-center gap-1">
+                  <Badge variant="outline" className="px-1 py-0 text-[10px]">
+                    {item.symbol}
+                  </Badge>
+                  <span>{item.description}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+            Group summary
+          </h3>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Group</TableHead>
+                <TableHead className="text-right">n</TableHead>
+                <TableHead className="text-right">Mean</TableHead>
+                <TableHead className="text-right">Std. dev.</TableHead>
+                <TableHead className="text-right">Std. error</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {groups.map((group) => (
+                <TableRow key={group.groupValue}>
+                  <TableCell>{group.groupValue}</TableCell>
+                  <TableCell className="text-right">
+                    {formatNumber(group.n, { maximumFractionDigits: 0, minimumFractionDigits: 0 })}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatNumber(group.mean, {
+                      minimumFractionDigits: 3,
+                      maximumFractionDigits: 3,
+                    })}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatNumber(group.stdDev, {
+                      minimumFractionDigits: 3,
+                      maximumFractionDigits: 3,
+                    })}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatNumber(group.standardError, {
+                      minimumFractionDigits: 3,
+                      maximumFractionDigits: 3,
+                    })}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </section>
+
+        {hasEffectSize && (
+          <section>
+            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+              Effect size
+            </h3>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="rounded-md border border-border/50 bg-background/40 px-3 py-2">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
+                  Cohen&apos;s d
+                </p>
+                <p className="text-sm font-semibold text-foreground">
+                  {formatEffect(effectSize.cohensD)}
+                </p>
+              </div>
+              <div className="rounded-md border border-border/50 bg-background/40 px-3 py-2">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
+                  Hedges&apos; g
+                </p>
+                <p className="text-sm font-semibold text-foreground">
+                  {formatEffect(effectSize.hedgesG)}
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {assumptions.length > 0 && (
+          <section>
+            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              Assumptions
+            </h3>
+            <ul className="list-disc pl-5 text-sm text-muted-foreground">
+              {assumptions.map((assumption) => (
+                <li key={assumption}>{assumption}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 export const RegressionSummary: React.FC<RegressionSummaryProps> = ({ analysis }) => {
   if (analysis.model === 'Linear Regression') {
     return <LinearRegressionSummary analysis={analysis} />;
+  }
+  if (analysis.model === 'Independent Samples t-Test') {
+    return <TTestSummary analysis={analysis} />;
   }
   return <RandomForestSummary analysis={analysis} />;
 };

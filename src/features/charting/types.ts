@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DatasetToolContextSchema } from '@/src/features/datasets/types';
 
 const ConversationTurnSchema = z.object({
   role: z.enum(['user', 'assistant', 'tool']),
@@ -9,6 +10,7 @@ export const VisualizationRequestSchema = z.object({
   nlQuestion: z.string().min(3, 'A natural language question is required.'),
   history: z.array(ConversationTurnSchema).optional(),
   clientChartId: z.string().optional(),
+  dataset: DatasetToolContextSchema,
 });
 export type VisualizationRequest = z.infer<typeof VisualizationRequestSchema>;
 

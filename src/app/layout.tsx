@@ -1,35 +1,33 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { Toaster } from '@/src/components/ui/toaster';
-import localFont from 'next/font/local';
 import { AppProviders } from '@/src/components/app-providers';
+import { Inter, Space_Grotesk } from 'next/font/google';
 
 export const metadata: Metadata = {
-  title: 'ESS Navigator',
-  description: 'Navigate the European Social Survey dataset with AI.',
+  title: {
+    default: 'SocialAnalysis',
+    template: '%s | SocialAnalysis',
+  },
+  description: 'SocialAnalysis ist das moderne Analytics-Studio fuer soziale Daten und KI-gestuetzte Insights.',
 };
 
-const bodyFont = localFont({
+const bodyFont = Inter({
+  subsets: ['latin'],
   display: 'swap',
   variable: '--font-body',
-  src: [
-    { path: '../../public/fonts/DejaVuSans.ttf', weight: '400', style: 'normal' },
-    { path: '../../public/fonts/DejaVuSans-Bold.ttf', weight: '700', style: 'normal' },
-  ],
 });
 
-const headingFont = localFont({
+const headingFont = Space_Grotesk({
+  subsets: ['latin'],
   display: 'swap',
   variable: '--font-heading',
-  src: [
-    { path: '../../public/fonts/DejaVuSans-Bold.ttf', weight: '700', style: 'normal' },
-  ],
 });
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning className={`${bodyFont.variable} ${headingFont.variable}`}>
-      <body className="font-body antialiased">
+    <html lang="de" suppressHydrationWarning className={`${bodyFont.variable} ${headingFont.variable}`}>
+      <body className="font-body antialiased bg-background text-foreground selection:bg-primary/20 selection:text-primary-foreground">
         <AppProviders>{children}</AppProviders>
         <Toaster />
       </body>

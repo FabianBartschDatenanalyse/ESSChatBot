@@ -14,6 +14,7 @@ interface ChartStoreState {
   setLoading: (id: string) => void;
   setSuccess: (id: string, chart: VisualizationChart) => void;
   setError: (id: string, error: string) => void;
+  updateChartConfig: (id: string, config: VisualizationChart['config']) => void;
   reset: (id?: string) => void;
 }
 
@@ -49,6 +50,26 @@ export const useChartStore = create<ChartStoreState>((set) => ({
         },
       },
     })),
+  updateChartConfig: (id, config) =>
+    set((state) => {
+      const entry = state.items[id];
+      if (!entry?.chart) {
+        return state;
+      }
+
+      return {
+        items: {
+          ...state.items,
+          [id]: {
+            ...entry,
+            chart: {
+              ...entry.chart,
+              config,
+            },
+          },
+        },
+      };
+    }),
   reset: (id) =>
     set((state) => {
       if (!id) {

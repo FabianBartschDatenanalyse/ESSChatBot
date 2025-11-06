@@ -6,6 +6,7 @@ export const runtime = 'nodejs';
 interface RequestPayload {
   question?: unknown;
   history?: unknown;
+  datasetId?: unknown;
 }
 
 export async function POST(request: Request) {
@@ -16,6 +17,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid "question" value.' }, { status: 400 });
     }
 
+    if (typeof body.datasetId !== 'string' || body.datasetId.trim().length === 0) {
+      return NextResponse.json({ error: 'Invalid "datasetId" value.' }, { status: 400 });
+    }
+
     const history =
       Array.isArray(body.history) && body.history.every(isValidHistoryMessage)
         ? body.history
@@ -24,6 +29,7 @@ export async function POST(request: Request) {
     const result = await mainAssistant({
       question: body.question,
       history,
+      datasetId: body.datasetId,
     });
 
     return NextResponse.json(result, { status: 200 });

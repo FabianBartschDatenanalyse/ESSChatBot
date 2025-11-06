@@ -37,6 +37,7 @@ export async function generateVisualization(
     const chart = await chartTool({
       nlQuestion: request.nlQuestion,
       history: request.history,
+      dataset: request.dataset,
     });
 
     if (chart.error) {

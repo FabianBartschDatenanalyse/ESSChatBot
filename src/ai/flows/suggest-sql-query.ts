@@ -1,4 +1,4 @@
-'use server';
+﻿'use server';
 
 /**
  * @fileOverview An AI agent that suggests SQL queries based on a natural language question.
@@ -10,7 +10,6 @@
 
 import {ai, isAiConfigured} from '@/src/ai/genkit';
 import {z, Message} from 'genkit';
-import { fetchTableColumns } from '@/src/lib/schema-cache';
 
 const MessageSchema = z.object({
   role: z.enum(['user', 'assistant', 'tool']),
@@ -22,6 +21,7 @@ const SuggestSqlQueryInputSchema = z.object({
   codebook: z.string().describe('Relevant context from the database codebook to use to construct the query.'),
   history: z.array(MessageSchema).optional().describe("The conversation history."),
   allowedColumns: z.array(z.string()).optional().describe('Column names that exist on the target table.'),
+  tableName: z.string().min(1).optional().describe('Name of the dataset table to query.'),
 });
 export type SuggestSqlQueryInput = z.infer<typeof SuggestSqlQueryInputSchema>;
 
@@ -31,13 +31,7 @@ const SuggestSqlQueryOutputSchema = z.object({
 export type SuggestSqlQueryOutput = z.infer<typeof SuggestSqlQueryOutputSchema>;
 
 export async function suggestSqlQuery(input: SuggestSqlQueryInput): Promise<SuggestSqlQueryOutput> {
-  let allowedColumns: string[] = [];
-  try {
-    allowedColumns = await fetchTableColumns('ESS1');
-  } catch (schemaError) {
-    console.warn('[suggestSqlQuery] Failed to fetch allowed columns.', schemaError);
-  }
-  return suggestSqlQueryFlow({ ...input, allowedColumns });
+  return suggestSqlQueryFlow(input);
 }
 
 const prompt = ai.definePrompt({
@@ -50,11 +44,11 @@ const prompt = ai.definePrompt({
   Carefully analyze the user's question, the history, and the provided context to construct an accurate query.
 
   **CRITICAL RULES:**
-  1.  **Table Name:** The ONLY table you can query is "ESS1". This table name MUST ALWAYS be enclosed in double quotes (e.g., \`FROM "ESS1"\`).
-  2.  **Column Names:** Use **only** column names that appear in the allowed columns list below. Ideally confirm they also appear in the codebook context. Pay close attention to abbreviations (e.g., 'cntry', 'trstprl'). Column names should NOT be quoted.
+  1.  **Table Name:** The ONLY table you may query is "{{tableName}}". Always wrap the table name in double quotes (e.g., \`FROM "{{tableName}}"\`).
+  2.  **Column Names:** Use **only** column names that appear in the allowed columns list below. If the list is empty or the required columns are unknown, return an empty SQL string instead of inventing new columns.
   3.  **Casting:** When performing mathematical operations (like AVG, SUM, etc.) on a column, you MUST cast it to a numeric type (e.g., \`CAST(trstprl AS NUMERIC)\`).
   4.  **No Semicolon:** The generated SQL query MUST NOT end with a semicolon.
-  5.  **Filtering Missing Values:** When aggregating data (e.g., with AVG, COUNT), you MUST exclude rows with missing or invalid data. The codebook specifies missing values with codes like 77, 88, and 99. These are stored as TEXT, so you MUST compare them as strings. Always include a \`WHERE\` clause to filter these out (e.g., \`WHERE trstprl NOT IN ('77', '88', '99')\`).
+  5.  **Missing Values:** Follow the missing-value guidance in the dataset summary. Exclude the listed sentinel values and NULLs with \`WHERE\` clauses (e.g., \`WHERE column NOT IN (...) AND column IS NOT NULL\`).
   6.  **Empty Query Fallback:** If you cannot determine a valid SQL query from the request, you MUST return an empty string for the 'sqlQuery' field.
 
   **Allowed Columns (authoritative schema slice):**
@@ -78,7 +72,7 @@ const prompt = ai.definePrompt({
   **User's Current Question (this is the question you need to turn into SQL):**
   {{{question}}}
 
-  **Relevant Codebook Context:**
+  **Dataset Summary & Missing Value Guidance:**
   \`\`\`
   {{{codebook}}}
   \`\`\`

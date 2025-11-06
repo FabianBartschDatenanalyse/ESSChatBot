@@ -1,63 +1,71 @@
 'use server';
 
-import { supabase } from '@/src/lib/supabase';
+import fs from 'node:fs/promises';
+import { getDatasetSqlitePath } from '@/src/features/datasets/server/dataset-repository';
+import { openDatabaseFromFile } from '@/src/features/datasets/server/sql-engine';
 
-/**
- * Executes a read-only SQL query against the Supabase database.
- * This function is designed to be safe and only allow SELECT statements.
- *
- */
-export async function executeQuery(query: string): Promise<{ data?: any[], error?: string }> {
-  console.log('[data-service] Executing query:', query);
+type ExecuteQueryResult = {
+  data?: any[];
+  error?: string;
+};
 
-  if (!supabase) {
-    const error = "Supabase client is not initialized. Please check your environment variables.";
-    console.error(`[data-service] ${error}`);
-    return { error };
+const ALLOWED_STATEMENTS = ['select', 'with', 'pragma table_info'];
+
+const isReadOnlyQuery = (query: string): boolean => {
+  const normalized = query.trim().toLowerCase();
+  return ALLOWED_STATEMENTS.some((statement) => normalized.startsWith(statement));
+};
+
+const toPlainRows = (columns: string[], values: any[][]): any[] => {
+  if (!values?.length) {
+    return [];
+  }
+  return values.map((row) => {
+    const record: Record<string, any> = {};
+    columns.forEach((column, index) => {
+      record[column] = row[index] ?? null;
+    });
+    return record;
+  });
+};
+
+export async function executeQuery(query: string, datasetId: string): Promise<ExecuteQueryResult> {
+  const trimmedQuery = query.trim();
+  console.log('[data-service] Executing query:', trimmedQuery, 'dataset:', datasetId);
+
+  if (!trimmedQuery) {
+    return { error: 'Empty query was provided.' };
+  }
+
+  if (!isReadOnlyQuery(trimmedQuery)) {
+    return { error: 'Only read-only SELECT queries are permitted.' };
+  }
+
+  const sqlitePath = getDatasetSqlitePath(datasetId);
+
+  try {
+    await fs.access(sqlitePath);
+  } catch {
+    return { error: `Dataset "${datasetId}" is not available. Please upload the dataset again.` };
   }
 
   try {
-    // Call the Supabase database function `execute_safe_query`.
-    const { data: rpcResponse, error: rpcError } = await supabase
-      .rpc('execute_safe_query', { query_text: query });
+    const db = await openDatabaseFromFile(sqlitePath);
+    const resultSets = db.exec(trimmedQuery);
+    db.close();
 
-    if (rpcError) {
-      console.error('[data-service] Supabase RPC error:', rpcError.message);
-      return { error: `Supabase RPC call failed: ${rpcError.message}` };
-    }
-    
-    if (!rpcResponse) {
-      const errorMessage = 'Received null or empty response from database function.';
-      console.error(`[data-service] ${errorMessage}`);
-      return { error: errorMessage };
-    }
-    
-    // The rpcResponse is the direct JSON object from the function: { status: '...', data: [...] or error: '...' }
-    console.log('[data-service] Response from database function:', JSON.stringify(rpcResponse, null, 2));
-    
-    if (rpcResponse.status === 'error') {
-      console.error('[data-service] Database function returned error:', rpcResponse.error);
-      return { error: rpcResponse.error };
+    if (!resultSets.length) {
+      return { data: [] };
     }
 
-    if (rpcResponse.status === 'success' && rpcResponse.data) {
-      if (!Array.isArray(rpcResponse.data)) {
-          const unexpectedFormatError = 'Data from database function is not an array.';
-          console.error(`[data-service] ${unexpectedFormatError}`, rpcResponse.data);
-          return { error: unexpectedFormatError };
-      }
-      
-      console.log(`[data-service] Success. Returning ${rpcResponse.data.length} rows.`);
-      return { data: rpcResponse.data };
-    }
-
-    // Fallback for unexpected response structures
-    const unexpectedFormatError = 'Received an unexpected response format from the database function.';
-    console.error(`[data-service] ${unexpectedFormatError}`, rpcResponse);
-    return { error: unexpectedFormatError };
-
-  } catch (e: any) {
-    console.error('[data-service] Exception during query execution:', e.message);
-    return { error: `Query execution failed with exception: ${e.message}` };
+    const primary = resultSets[0];
+    const data = toPlainRows(primary.columns ?? [], primary.values ?? []);
+    console.log(`[data-service] Success. Returning ${data.length} rows.`);
+    return { data };
+  } catch (error: any) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[data-service] Query execution failed:', message);
+    return { error: `Query execution failed: ${message}` };
   }
 }
+

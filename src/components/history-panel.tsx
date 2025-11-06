@@ -21,19 +21,20 @@ export default function HistoryPanel({ conversations, activeConversationId, setA
   }
 
   return (
-    <ScrollArea className="h-[calc(100vh-150px)] w-full">
-      <div className="flex flex-col gap-2 pr-2">
+    <ScrollArea className="h-[calc(100vh-220px)] w-full pr-1">
+      <div className="flex flex-col gap-3">
         {conversations.map((conv) => (
           <Button
             key={conv.id}
             variant="ghost"
             className={cn(
-              "w-full justify-start text-left h-auto whitespace-normal",
-              conv.id === activeConversationId && "bg-sidebar-accent text-sidebar-accent-foreground"
+              'h-auto w-full justify-start gap-3 rounded-lg border border-transparent px-3 py-3 text-left text-sm font-medium text-sidebar-foreground/90 transition-colors hover:border-white/10 hover:bg-white/5',
+              conv.id === activeConversationId &&
+                'border-sidebar-accent bg-sidebar-accent text-sidebar-accent-foreground shadow-sm',
             )}
             onClick={() => setActiveConversationId(conv.id)}
           >
-           <p className="truncate text-sm font-medium">{conv.title}</p>
+            <p className="text-sm font-medium leading-snug">{conv.title}</p>
           </Button>
         ))}
       </div>

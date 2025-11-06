@@ -61,6 +61,7 @@ const nextConfig = {
         vega: 'commonjs vega',
         'vega-lite': 'commonjs vega-lite',
         '@resvg/resvg-js': 'commonjs @resvg/resvg-js',
+        'sql.js/dist/sql-wasm.js': 'commonjs sql.js/dist/sql-wasm.js',
       });
     }
 

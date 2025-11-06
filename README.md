@@ -1,15 +1,100 @@
 
-# ESS Navigator: AI-Powered Data Explorer
+# SocialAnalysis: AI-Augmented Social Data Studio
 
-Welcome to the ESS Navigator, an intelligent chatbot designed to make the European Social Survey (ESS) dataset accessible through natural language. Instead of writing complex SQL queries, you can simply ask questions, and the AI will analyze the data, perform statistical calculations, and provide you with clear, understandable answers.
+SocialAnalysis ist ein Research-Copilot fuer gesellschaftliche Datensaetze. Statt komplexer SQL-Queries formulierst du Fragen in Alltagssprache, der Copilot analysiert das verbundene Dataset, fuehrt statistische Verfahren aus und liefert verstaendliche Einsichten inklusive Visualisierung, SQL-Statements und Kontext aus Codebooks.
 
-## Core Features
+## Core Capabilities
 
-- **Natural Language Queries**: Ask questions in plain English (or German), e.g., "What is the average trust in parliament per country?".
-- **AI-Powered SQL Generation**: The AI automatically translates your question into a valid SQL query.
-- **Context-Aware Analysis**: Using a vector database (RAG), the chatbot understands the context of your question by referencing the ESS codebook, ensuring it uses the correct variables (e.g., knowing that `trstprl` means "trust in parliament").
-- **Statistical Analysis**: The bot can perform on-the-fly statistical analyses like linear regression to uncover relationships between variables.
-- **Interactive & Transparent**: Every answer is accompanied by the exact SQL query used and the context retrieved from the codebook, ensuring full transparency.
+- **Natural Language Analytics**: Stelle deine Frage in Englisch oder Deutsch. Der Assistant reformuliert Folgefragen kontextsensitiv, erzeugt SQL oder startet eine Regression und fuegt das Resultat als Chat-Antwort ein.
+- **Transparent Antworten**: Jede Antwort kann die generierte SQL-Query sowie das aus dem Codebook geholte Kontextmaterial im Detailpane anzeigen. Markdown, Tabellen und eingebettete PNG-Charts werden im Chat sauber gerendert.
+- **Statistical Modelling**: The assistant runs linear and non-linear regressions, Welch t-tests for group comparisons, and returns model KPIs, coefficient tables, confidence intervals, and diagnostics in a structured format.
+- **Interactive Charting**: Visualisierungen werden mit Vega/Vega-Lite gerendert, sind responsiv und lassen sich direkt im UI bearbeiten oder via Vega-Editor oeffnen. Charts koennen als PNG exportiert werden.
+- **Dataset Lifecycle Management**: CSV-Dateien lassen sich hochladen, Metadaten (Titel, Notizen, Gewichtung) anpassen, Spalten beschreiben, Value Labels und Missing Codes pflegen sowie Sample-Rows direkt im Browser inspizieren.
+- **Session Handling & UI Comfort**: Mehrere Konversationen pro Dataset, automatische Session-Benennung, History-Navigation, Theme-Toggle (Light/Dark) und Metrik-Kacheln sorgen fuer Orientierung.
+
+## User Experience at a Glance
+
+### Dashboard & Sessions
+
+- Sidebar mit Logo, KPI-Kacheln, Konversationsliste und Schnellstart fuer neue Sessions.
+- Header-Actions fuer Refresh, Theme-Wechsel und Deeplink in die Dataset-Verwaltung (`/datasets/manage` in neuem Fenster).
+- Automatische Dataset-Kopplung an aktive Konversation, inklusive Fallback-Hinweisen wenn kein Dataset ausgewaehlt ist.
+
+### Ask-AI Panel
+
+- Formular mit Dataset-Dropdown, Validierung und Loading-States.
+- Chat-Rendering mit Avataren, Markdown-Unterstuetzung (u.a. Tabellen, Code, Links, Inline-Bilder/Base64-Charts).
+- Vega-Charts im `ChartShell` mit Edit-Dialog (JSON-Spezifikation), Vega-Editor-Shortcut und Download-Button.
+- Accordion fuer SQL-Statement, Context-Snippets und statistische Ergebnisse (`RegressionSummary`).
+- Fehlerbehandlung und Fallback-Antworten bei API-Issues.
+
+### Dataset Studio (`/datasets/manage`)
+
+- CSV-Upload inklusive Statusmeldungen, automatischer Schema-Erkennung und Reset-Moeglichkeit.
+- Detailkonfiguration pro Dataset: Titel, Notes, Default Missing Values, Gewichtsvariable.
+- Spalteneditor mit Display-Name, Beschreibung, Datentyp, Skalenniveau, Value Labels und Spalten-Missing Codes.
+- Preview-Table der ersten Zeilen, um Datenqualitaet direkt zu checken.
+- Aktionen zum Speichern, Dataset loeschen und Feedback zu Erfolgen/Fehlern.
+- Optionales Codebook: Lade beim Upload eine zweite Datei mit Variablen-Metadaten hoch. Fehlt sie, werden Spezifikationen wie gewohnt automatisch aus dem Rohdatensatz abgeleitet.
+
+### Column Metadata Upload
+
+- Akzeptierte Formate: JSON (empfohlen) oder CSV. Beide muessen eine Zeile/Eintrag pro Spalte enthalten.
+- `dataType` Unterstuetzung: `string`, `number`, `boolean`, `date`. Synonyme wie `numeric` oder `int` werden automatisch gemappt.
+- `measurementLevel` Werte: `nominal`, `ordinal`, `metric`. Auch `scale`, `interval` oder `ratio` werden auf `metric` gemappt.
+- Optional: `valueLabels` (kommagetrennt, z.B. `1=Ja,2=Nein`), `missingValues`, `isWeight` (markiert Gewichtsvariable), `defaultMissingValues` und `notes` auf Dataset-Ebene.
+
+**JSON Beispiel**
+
+```json
+{
+  "defaultMissingValues": ["77", "88", "99"],
+  "weightColumn": "dweight",
+  "notes": "Original ESS Codebook wurde uebernommen.",
+  "columns": [
+    {
+      "name": "tvpol",
+      "displayName": "TV Politik (min)",
+      "description": "Zeit fuer politische TV-Inhalte pro Werktag",
+      "dataType": "number",
+      "measurementLevel": "metric",
+      "valueLabels": ["0=Keine Zeit", "1440=24h"],
+      "missingValues": ["77", "88"]
+    },
+    {
+      "name": "cntry",
+      "dataType": "string",
+      "measurementLevel": "nominal",
+      "valueLabels": ["AT=Austria", "DE=Germany", "CH=Switzerland"]
+    }
+  ]
+}
+```
+
+**CSV Beispiel**
+
+```csv
+name,displayName,dataType,measurementLevel,valueLabels,missingValues,is_weight
+tvpol,TV Politik,number,metric,"0=Keine Zeit;1440=24h","77;88",
+dweight,,number,metric,,,"true"
+```
+
+Wird keine Metadaten-Datei hochgeladen, bleibt der Workflow unveraendert: Datentypen, Missing Codes und Skalenniveaus werden aus dem Rohdatensatz inferiert und koennen anschliessend im Studio ueberarbeitet werden.
+
+## Analytical Workflow
+
+1. **User Input & Reformulation**  
+   Die Eingabe startet im `AskAiPanel`. Die Frage samt Verlauf landet in `mainAssistant`, der mithilfe des `mainAssistantFlow` Follow-up-Fragen in vollstaendige Prompts ueberfuehrt.
+
+2. **Context Retrieval (RAG)**  
+   `searchCodebook` embeddert die Anfrage, durchsucht die pgvector-Collection mit Codebook-Chunks und liefert relevante Beschreibungen (z.B. fuer Variablen wie `trstprl` oder `cntry`).
+
+3. **SQL oder Statistik**  
+   - *SQL-Pfad*: `suggestSqlQueryFlow` erzeugt eine valide Query, `executeQueryTool` leitet sie an den `data-service` weiter, der via Supabase-RPC (`execute_safe_query`) nur `SELECT`-Statements ausfuehrt.  
+   - *Analyse-Pfad*: `statisticsTool` plant das Modell (Targets, Features, Filter), holt Rohdaten und fuehrt Regressionsverfahren in Node.js (z.B. Multivariate Linear Regression) aus.
+
+4. **Answer Synthesis & UI**  
+   Das LLM bekommt Daten, SQL, Kontext und erzeugt eine gut lesbare Antwort. Der Client zeigt Antwort, Chart, Statistik-Block sowie optional SQL & Kontext an – alles in der gleichen Chatnachricht.
 
 ## Technology Stack
 
@@ -17,54 +102,9 @@ Welcome to the ESS Navigator, an intelligent chatbot designed to make the Europe
 - **Styling**: Tailwind CSS, shadcn/ui
 - **AI Orchestration**: Google Genkit
 - **LLM Provider**: OpenAI (GPT-4o)
-- **Database**: Supabase (PostgreSQL for data storage, pgvector for vector search)
+- **Database**: Supabase (PostgreSQL + pgvector)
 - **Vector Embeddings**: OpenAI `text-embedding-3-small`
 
----
+SocialAnalysis vereint damit explorative Datenanalyse, transparente KI-Unterstuetzung und ein Dataset-Studio in einer Anwendung.
 
-## Architectural Workflow
 
-The application follows a sophisticated, multi-step process to answer user queries accurately. Here is a step-by-step breakdown of the workflow:
-
-### Step 1: User Input & Question Reformulation
-
-A user's journey begins in the `AskAiPanel` component.
-
-1.  **User Question**: The user types a question into the chat interface.
-2.  **API Call**: The frontend calls the main serverless function, `mainAssistant`.
-3.  **Question Reformulation (`mainAssistantFlow`)**: The AI first analyzes the current question in the context of the conversation history. If it's a follow-up question (e.g., "and for Germany?"), it reformulates it into a complete, self-contained query (e.g., "What is the average trust in parliament for Germany?"). This ensures that every tool call is stateless and understandable on its own.
-
-### Step 2: Context Retrieval (RAG)
-
-Before generating a query, the system retrieves relevant context using a Retrieval-Augmented Generation (RAG) approach.
-
-1.  **Vector Search (`searchCodebook`)**: The reformulated question is converted into a vector embedding. This embedding is used to search a `pgvector` database in Supabase, which contains chunked and embedded sections of the ESS codebook.
-2.  **Context Injection**: The most relevant parts of the codebook (e.g., descriptions of variables like `cntry`, `agea`, `trstprl`) are retrieved. This context is crucial for the next step.
-
-### Step 3: SQL Generation or Statistical Analysis
-
-Based on the user's intent, the system decides whether to generate a simple SQL query or perform a more complex statistical analysis.
-
-#### Path A: Standard SQL Query
-
-1.  **SQL Suggestion (`suggestSqlQueryFlow`)**: The AI is prompted with the reformulated question and the retrieved codebook context. Its task is to generate a precise and valid SQL query. It follows strict rules, such as correctly quoting the table name (`"ESS1"`) and casting variables for calculations (`CAST(trstprl AS NUMERIC)`).
-2.  **Query Execution (`executeQueryTool` -> `data-service`)**:
-    *   The generated SQL is passed to the `executeQueryTool`.
-    *   This tool calls the `executeQuery` function in `data-service.ts`, which makes a secure RPC call to the `execute_safe_query` function in the Supabase database.
-    *   The database function ensures only `SELECT` statements are run, preventing any modifications to the data. It executes the query and returns the results as a JSON object.
-
-#### Path B: Statistical Analysis
-
-1.  **Analysis Planning (`mainAssistantFlow`)**: If the user's question implies a statistical relationship (e.g., "What is the effect of education on income?"), the AI first plans the analysis. It identifies the dependent variable (target), independent variables (features), and any necessary filters.
-2.  **Statistical Tool (`statisticsTool`)**:
-    *   Instead of the standard query tool, the `statisticsTool` is invoked.
-    *   This tool constructs its own SQL query to fetch the raw, unfiltered data required for the analysis.
-    *   It then performs the regression (e.g., Linear Regression or Random Forest) directly in the Node.js environment using libraries like `ml-regression-multivariate-linear`.
-
-### Step 4: Final Answer Synthesis
-
-1.  **LLM-Powered Summary**: The final data (either from the SQL query or the statistical analysis), along with the user's original question and the SQL query used, is sent back to the AI.
-2.  **User-Friendly Response**: The AI synthesizes all this information into a comprehensive, easy-to-understand final answer.
-3.  **Display in UI**: The `AskAiPanel` component receives the final answer, the SQL query, and the retrieved context, and displays them to the user. The details are neatly tucked away in an accordion to keep the interface clean.
-
-This workflow ensures that the chatbot's answers are not only accurate and data-driven but also transparent and contextually aware.

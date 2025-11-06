@@ -12,8 +12,7 @@ import { ai, isAiConfigured, missingAiMessage } from '@/src/ai/genkit';
 import { executeQuery } from '@/src/lib/data-service';
 import { z, Message } from 'genkit';
 import { suggestSqlQuery, type SuggestSqlQueryOutput } from '@/src/ai/flows/suggest-sql-query';
-import { searchCodebook } from '@/src/lib/vector-search';
-import { fetchTableColumns } from '@/src/lib/schema-cache';
+import { DatasetToolContextSchema } from '@/src/features/datasets/types';
 
 /* ----------------------- Helpers: Plain JSON Sanitizing ----------------------- */
 
@@ -62,6 +61,7 @@ const MessageSchema = z.object({
 });
 
 const toolInputSchema = z.object({
+  dataset: DatasetToolContextSchema,
   nlQuestion: z.string().describe('A natural language question that can be answered with a SQL query.'),
   history: z.array(MessageSchema).optional().describe('The conversation history.'),
 });
@@ -100,18 +100,10 @@ export const executeQueryTool = ai.defineTool(
     }
 
     try {
-      // Step 1: Retrieve relevant context from the vector database.
-      const searchResults = await searchCodebook(input.nlQuestion, 7);
-      retrievedContext = searchResults
-        .map((result) => `- ${result.content}`)
-        .join('\n');
-
-      let allowedColumns: string[] = [];
-      try {
-        allowedColumns = await fetchTableColumns('ESS1');
-      } catch (schemaError) {
-        console.warn('[executeQueryTool] Failed to fetch allowed columns from schema.', schemaError);
-      }
+      // Step 1: Use dataset metadata as authoritative context.
+      const tableName = input.dataset.tableName;
+      retrievedContext = input.dataset.context;
+      const allowedColumns = input.dataset.columns.map((column) => column.name);
 
       // Step 2: Generate SQL from question + context
       let suggestion: SuggestSqlQueryOutput;
@@ -120,6 +112,8 @@ export const executeQueryTool = ai.defineTool(
           question: input.nlQuestion,
           codebook: retrievedContext,
           history: input.history,
+          allowedColumns,
+          tableName,
         });
         sqlQuery = suggestion.sqlQuery;
         injectedSql = sqlQuery || injectedSql;
@@ -134,46 +128,27 @@ export const executeQueryTool = ai.defineTool(
       }
 
       if (!sqlQuery || sqlQuery.trim() === '') {
-        // Best-effort template if the LLM did not return SQL
-        const defaultColumnOrder = ['cntry', 'gndr', 'agea', 'hinctnt', 'stflife'];
-        const columnPool = allowedColumns.length
-          ? allowedColumns
-          : (retrievedContext.match(/\b[a-zA-Z_][a-zA-Z0-9_]{1,30}\b/g) || []);
-        const seen = new Set<string>();
-        const filteredPool: string[] = [];
-        for (const name of columnPool) {
-          const normalized = name.toLowerCase();
-          if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) continue;
-          if (['ess1', 'public'].includes(normalized)) continue;
-          if (seen.has(normalized)) continue;
-          seen.add(normalized);
-          filteredPool.push(name);
-        }
-        const prioritized = defaultColumnOrder.filter((candidate) =>
-          filteredPool.some((name) => name.toLowerCase() === candidate.toLowerCase())
-        );
-        const remainder = filteredPool.filter(
-          (name) => !prioritized.some((cand) => cand.toLowerCase() === name.toLowerCase())
-        );
-        let resolvedCols = [...prioritized, ...remainder].slice(0, 3);
-        if (!resolvedCols.length) {
-          resolvedCols = ['cntry'];
+        const fallbackColumns = allowedColumns.slice(0, 3);
+        if (!fallbackColumns.length) {
+          const out = {
+            error: 'Dataset does not expose any columns to build a SQL query.',
+            sqlQuery: '',
+            injectedSql: '',
+            retrievedContext: retrievedContext || '',
+          };
+          return safeReturn(out);
         }
 
-        const placeholderSelect = resolvedCols.join(', ');
-        const missingCodes = `'77','88','99'`;
-
+        const placeholderSelect = fallbackColumns.map((column) => `"${column}"`).join(', ');
         sqlQuery = `SELECT ${placeholderSelect}
-FROM "ESS1"
-WHERE ${resolvedCols[0]} NOT IN (${missingCodes})
--- TODO: Adjust columns/filters/aggregations to answer: ${JSON.stringify(input.nlQuestion)}
--- Context excerpt:
--- ${retrievedContext.slice(0, 400).replace(/\n/g, ' ')}`;
+FROM "${tableName}"
+LIMIT 50
+-- TODO: Adjust columns/filters/aggregations to answer: ${JSON.stringify(input.nlQuestion)}`;
         injectedSql = sqlQuery;
       }
 
       // Step 3: Execute SQL
-      const result = await executeQuery(sqlQuery);
+      const result = await executeQuery(sqlQuery, input.dataset.id);
 
       if (result.error) {
         const out = {

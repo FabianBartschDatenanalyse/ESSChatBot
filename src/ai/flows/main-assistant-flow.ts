@@ -15,19 +15,50 @@ import { unstable_noStore as noStore } from 'next/cache';
 import { ai, isAiConfigured, missingAiMessage } from '@/src/ai/genkit';
 import { z } from 'zod';
 import { executeQueryTool } from '@/src/ai/tools/sql-query-tool';
-import { searchCodebook } from '@/src/lib/vector-search';
 import { statisticsTool } from '@/src/ai/tools/statistics-tool';
 import { generateVisualization } from '@/src/features/charting/server/generate-visualization';
 import { VisualizationChartMessageSchema } from '@/src/features/charting/types';
-import { RegressionAnalysisSchema } from '@/src/features/statistics/types';
+import { StatisticsAnalysisSchema } from '@/src/features/statistics/types';
 import { randomUUID } from 'crypto';
-import { fetchTableColumns } from '@/src/lib/schema-cache';
+import { getDatasetMetadata } from '@/src/features/datasets/server';
+import { getDatasetPromptContext } from '@/src/features/datasets/prompt-utils';
+import { datasetTableName } from '@/src/features/datasets/utils';
 
-// ✨ NEU: Chart-Tool importieren
+// Chart tool integration point
 
-// ✨ NEU: Heuristik, ob die Frage nach einer Grafik klingt
-const looksLikeChart = (q: string) =>
-  /\b(plot|chart|diagram|visuali[sz]e|grafik|abbildung|balken|linie|scatter|heatmap)\b/i.test(q);
+// Heuristic to detect when the user is asking for a visualization
+// Simple keyword list to catch common chart intents, including German phrasing.
+const chartKeywords = [
+  'plot',
+  'chart',
+  'diagram',
+  'visualisier',
+  'visualise',
+  'visualize',
+  'grafik',
+  'graph',
+  'abbildung',
+  'balken',
+  'saeule',
+  'saule',
+  'balkendiagramm',
+  'linien diagramm',
+  'liniendiagramm',
+  'line chart',
+  'scatter',
+  'heatmap',
+  'histogram',
+  'verteilung',
+];
+
+const looksLikeChart = (q: string) => {
+  const normalized = q
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+  return chartKeywords.some((keyword) => normalized.includes(keyword));
+};
 
 const MessageSchema = z.object({
   role: z.enum(['user', 'assistant', 'tool']),
@@ -37,6 +68,7 @@ const MessageSchema = z.object({
 const MainAssistantInputSchema = z.object({
   question: z.string().describe("The user's current question."),
   history: z.array(MessageSchema).optional().describe("The conversation history."),
+  datasetId: z.string().uuid().describe('The dataset identifier selected by the user.'),
 });
 export type MainAssistantInput = z.infer<typeof MainAssistantInputSchema>;
 
@@ -45,7 +77,7 @@ const MainAssistantOutputSchema = z.object({
   sqlQuery: z.string().optional().describe('The SQL query that was executed.'),
   retrievedContext: z.string().optional().describe('The context retrieved from the vector database.'),
   chart: VisualizationChartMessageSchema.optional(),
-  statistics: RegressionAnalysisSchema.optional(),
+  statistics: StatisticsAnalysisSchema.optional(),
 });
 export type MainAssistantOutput = z.infer<typeof MainAssistantOutputSchema>;
 
@@ -64,8 +96,14 @@ const ReformulatedQuestionSchema = z.object({
 
 // Schlankes Schema zur Extraktion eines Regressions-Plans (ohne Variablen-Einschränkung)
 const StatsExtractionSchema = z.object({
-  needsRegression: z.boolean().describe("True if the question asks for regression/effects/prediction/coefficients."),
-  analysisType: z.enum(['linearRegression', 'randomForestRegression']).optional(),
+  needsStatistics: z
+    .boolean()
+    .describe(
+      'True if the question asks for regression/effects/prediction/coefficients or a significance test (e.g., group differences).',
+    ),
+  analysisType: z
+    .enum(['linearRegression', 'randomForestRegression', 'independentTTest'])
+    .optional(),
   target: z.string().optional(),
   features: z.array(z.string()).optional(),
   filters: z.record(z.string(), z.any()).optional(),
@@ -86,6 +124,36 @@ const mainAssistantFlow = ai.defineFlow(
         answer: missingAiMessage,
       };
     }
+
+    const dataset = await getDatasetMetadata(input.datasetId);
+    if (!dataset) {
+      return {
+        answer: 'The selected dataset could not be found. Please upload or select a dataset before asking questions.',
+      };
+    }
+
+    if (dataset.status !== 'ready') {
+      return {
+        answer: `The dataset "${dataset.title}" is not ready yet (status: ${dataset.status}). Please wait for processing to finish.`,
+      };
+    }
+
+    const datasetContext = getDatasetPromptContext(dataset);
+    const retrievedContext = datasetContext.summary;
+    const allowedColumns = datasetContext.allowedColumns;
+    const missingValueMap = datasetContext.missingValueMap;
+    const tableName = datasetTableName(dataset.id);
+    const datasetToolContext = {
+      id: dataset.id,
+      title: dataset.title,
+      rowCount: dataset.rowCount,
+      tableName,
+      context: retrievedContext,
+      columns: dataset.columns,
+      defaultMissingValues: dataset.defaultMissingValues ?? [],
+      weightColumn: dataset.weightColumn ?? null,
+    };
+
 
     // Step 1: Decide if a tool is needed and reformulate the question if necessary.
     const reformulationPrompt = `You are an expert at processing conversations. Your task is to determine if the user's latest question requires database access and to reformulate it into a self-contained question if it's a follow-up.
@@ -119,6 +187,7 @@ const mainAssistantFlow = ai.defineFlow(
         nlQuestion: reformulatedQuestion,
         history: input.history,
         clientChartId,
+        dataset: datasetToolContext,
       });
 
       if (visualization.status === 'error' || !visualization.chart || !visualization.meta?.request) {
@@ -134,7 +203,7 @@ const mainAssistantFlow = ai.defineFlow(
       const interpretation =
         visualization.chart.interpretation?.trim();
       const subtitle =
-        visualization.chart.caption ??
+        visualization.chart.caption?.trim() ||
         'Hier ist die automatisch generierte Visualisierung. Du kannst sie mit den Tools im Interface weiter anpassen.';
       const answer = interpretation && interpretation.length > 0 ? interpretation : subtitle;
 
@@ -157,80 +226,57 @@ const mainAssistantFlow = ai.defineFlow(
         model: 'openai/gpt-5',
         prompt: `Answer the following user question: "${reformulatedQuestion}"`,
       });
-      return { answer: directAnswerResponse.text };
+      return { answer: directAnswerResponse.text, retrievedContext };
     }
-
-    // Step 2: Fetch schema information for available columns
-    let allowedColumns: string[] = [];
-    try {
-      allowedColumns = await fetchTableColumns('ESS1');
-    } catch (schemaError) {
-      console.warn('[mainAssistantFlow] Failed to fetch table columns for regression planning.', schemaError);
-    }
-    const normalizedAllowedColumns = new Set(allowedColumns.map((c) => c.trim().toLowerCase()));
-
-    // Step 3: Unabhängig von SQL zuerst Codebook-Kontext holen
-    const searchResults = await searchCodebook(reformulatedQuestion, 7);
-    const formatBlock = (block: string) => {
-      const safeBlock = (block ?? '').trimEnd();
-      return `- ${safeBlock.replace(/\n/g, '\n  ')}`;
-    };
-    const annotateBlockWithSchema = (block: string) => {
-      if (!normalizedAllowedColumns.size) {
-        return block;
-      }
-      return block
-        .split('\n')
-        .map((line) => {
-          const trimmedLine = line.trimStart();
-          const match = trimmedLine.match(/^([A-Za-z0-9_]+)/);
-          if (!match) {
-            return line;
-          }
-          const rawName = match[1];
-          const normalized = rawName.replace(/[^A-Za-z0-9_]/g, '').toLowerCase();
-          if (!normalized) {
-            return line;
-          }
-          if (normalizedAllowedColumns.has(normalized)) {
-            return line;
-          }
-          return `${line} [NOT_IN_SCHEMA]`;
-        })
-        .join('\n');
-    };
-
-    const rawContextBlocks = searchResults.map((r: any) => String(r.content || ''));
-    const retrievedContext = rawContextBlocks.map((block) => formatBlock(block)).join('\n');
-    console.log('[mainAssistantFlow] Retrieved context length:', retrievedContext.length);
-
-    const annotatedContext = rawContextBlocks
-      .map((block) => formatBlock(annotateBlockWithSchema(block)))
-      .join('\n');
-    const annotatedContextWithColumns = allowedColumns.length
-      ? `${annotatedContext}\n\nAvailable columns in the database:\n${allowedColumns.map((c) => `- ${c}`).join('\n')}`
-      : annotatedContext;
 
     const formattedAllowedColumns =
-      allowedColumns.length > 0 ? allowedColumns.map((c) => `- ${c}`).join('\n') : '(Schema lookup failed)';
+      allowedColumns.length > 0 ? allowedColumns.map((column) => `- ${column}`).join('\n') : '(No columns detected)';
 
-    const statsPrompt = `Plan a statistical regression only if the question requests regression/effects/prediction/coefficients.
+    const missingValueEntries = Object.entries(missingValueMap)
+      .map(([columnName, values]) => ({
+        columnName,
+        values: values.filter((value) => value !== ''),
+      }))
+      .filter(({ values }) => values.length > 0);
+
+    const missingValueSummary =
+      missingValueEntries.length > 0
+        ? missingValueEntries
+            .map(({ columnName, values }) => {
+              const limit = 6;
+              const displayed = values.slice(0, limit);
+              const suffix = values.length > limit ? `, ... (+${values.length - limit} more)` : '';
+              return `- ${columnName}: ${displayed.join(', ')}${suffix}`;
+            })
+            .join('\n')
+        : '- (no column-specific sentinel values beyond the global defaults)';
+
+    const statsPrompt = `Decide whether the user's question requires a statistical analysis. You can choose between:
+- linearRegression: classic OLS regression for interpretable coefficients.
+- randomForestRegression: non-linear regression if the relationship is complex.
+- independentTTest: compare the mean of a numeric target between exactly two groups.
+
+Set needsStatistics=true only when the question explicitly asks for effects, predictions, model estimates, or significance testing (e.g., "Is there a significant difference between..."). Otherwise keep needsStatistics=false.
 
 STRICT RULES:
-- Use variable names EXACTLY as they appear in the CODEBOOK CONTEXT below.
+- Use variable names EXACTLY as they appear in the dataset overview below.
 - Do NOT invent, rename, or reformat variable names.
-- Only use column names that appear in the ALLOWED COLUMNS list below. If a required variable is missing from both the context and the allowed list, set needsRegression=false and provide a brief reason.
+- Only use column names that appear in the ALLOWED COLUMNS list below. If a required variable is missing from both the overview and the allowed list, set needsStatistics=false and provide a brief reason.
+- Respect the missing value rules for each column. Avoid using records with these sentinel values.
+- If a weight column is provided, mention it in the plan but the downstream tool will apply it automatically.
+- For independentTTest specify the numeric outcome in target and provide exactly one grouping variable in features[]. For regressions supply the predictor variables in features[].
 
-ALLOWED COLUMNS (from Supabase schema for "ESS1"):
+DATASET OVERVIEW:
+${retrievedContext}
+
+ALLOWED COLUMNS (table "${tableName}"):
 ${formattedAllowedColumns}
 
-Return JSON with keys: needsRegression, analysisType, target, features, filters.
+MISSING VALUE RULES:
+${missingValueSummary}
 
 QUESTION:
-"${reformulatedQuestion}"
-
-CODEBOOK CONTEXT (authoritative variable names):
-${annotatedContextWithColumns}`;
+"${reformulatedQuestion}"`;
 
     let statsOutput: any | null = null;
     try {
@@ -242,20 +288,24 @@ ${annotatedContextWithColumns}`;
       const plan = statsExtraction.output!;
       console.log('[mainAssistantFlow] Stats extraction:', JSON.stringify(plan, null, 2));
 
-      // Wenn Regression nötig → direkt statisticsTool ausführen (statisticsTool lädt selbst die Daten via SQL)
-      if (plan?.needsRegression) {
+      // Run statisticsTool directly when statistical analysis is required (it fetches its own SQL data)
+      if (plan?.needsStatistics) {
+        const analysisType = (plan.analysisType ?? 'linearRegression') as
+          | 'linearRegression'
+          | 'randomForestRegression'
+          | 'independentTTest';
         statsOutput = await statisticsTool({
-          analysisType: (plan.analysisType ?? 'linearRegression') as 'linearRegression' | 'randomForestRegression',
+          dataset: datasetToolContext,
+          analysisType,
           target: String(plan.target || '').trim(),
           features: Array.isArray(plan.features) ? plan.features : [],
           filters: plan.filters,
-          codebookContext: retrievedContext,
         } as any);
         console.log('[mainAssistantFlow] statisticsTool output:', JSON.stringify(statsOutput, null, 2));
 
-        let structuredStatistics: z.infer<typeof RegressionAnalysisSchema> | undefined;
+        let structuredStatistics: z.infer<typeof StatisticsAnalysisSchema> | undefined;
         if (statsOutput?.result) {
-          const parsed = RegressionAnalysisSchema.safeParse(statsOutput.result);
+          const parsed = StatisticsAnalysisSchema.safeParse(statsOutput.result);
           if (parsed.success) {
             structuredStatistics = parsed.data;
           } else {
@@ -263,14 +313,17 @@ ${annotatedContextWithColumns}`;
           }
         }
 
-        const finalPrompt = `You are an expert data analyst and assistant for the ESS.
+        const finalPrompt = `You are an expert data analyst and assistant for the dataset "${dataset.title}".
 User's original question: "${input.question}"
 Reformulated question: "${reformulatedQuestion}"
 
-Regression result:
+Statistical result:
 ${JSON.stringify(statsOutput, null, 2)}
 
-Write a clear, user-friendly answer based on the regression result. If there was an error, explain it and suggest next steps.`;
+Dataset overview:
+${retrievedContext}
+
+Write a clear, user-friendly answer based on the statistical result. If there was an error, explain it and suggest next steps.`;
 
         const finalLlmResponse = await ai.generate({ model: 'openai/gpt-5', prompt: finalPrompt });
         const answer = finalLlmResponse.text;
@@ -289,10 +342,14 @@ Write a clear, user-friendly answer based on the regression result. If there was
 
     // Step 4: Kein Regressionsbedarf → executeQueryTool wie gehabt
     console.log(`[mainAssistantFlow] Tool required. Executing query for: "${reformulatedQuestion}"`);
-    const toolOutput = await executeQueryTool({ nlQuestion: reformulatedQuestion, history: input.history });
+    const toolOutput = await executeQueryTool({
+      dataset: datasetToolContext,
+      nlQuestion: reformulatedQuestion,
+      history: input.history,
+    });
     console.log('[mainAssistantFlow] Tool output received:', JSON.stringify(toolOutput, null, 2));
 
-    const finalPrompt = `You are an expert data analyst and assistant for the European Social Survey (ESS).
+    const finalPrompt = `You are an expert data analyst and assistant for the dataset "${dataset.title}".
 You have just executed a query to answer the user's question.
 
 User's original question: "${input.question}"
@@ -300,6 +357,9 @@ The reformulated question used for the query: "${reformulatedQuestion}"
 
 Here is the result from the database tool:
 ${JSON.stringify(toolOutput, null, 2)}
+
+Dataset overview:
+${retrievedContext}
 
 Now, formulate a final, user-friendly answer based on the tool's output. If there was an error, state it clearly and suggest next steps.`;
 

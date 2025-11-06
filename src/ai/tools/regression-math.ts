@@ -258,7 +258,7 @@ const regularizedIncompleteBeta = (x: number, a: number, b: number): number => {
   }
 };
 
-const studentsTCdf = (t: number, df: number): number => {
+export const studentsTCdf = (t: number, df: number): number => {
   const x = df / (df + t * t);
   const ib = regularizedIncompleteBeta(x, df / 2, 0.5);
   if (t >= 0) {
@@ -267,7 +267,7 @@ const studentsTCdf = (t: number, df: number): number => {
   return 0.5 * ib;
 };
 
-const studentsTQuantile = (prob: number, df: number): number => {
+export const studentsTQuantile = (prob: number, df: number): number => {
   const target = clamp(prob, EPS, 1 - EPS);
   const upperTail = target > 0.5;
   const adjustedProb = upperTail ? target : 1 - target;
@@ -302,7 +302,7 @@ const fDistributionPValue = (f: number, df1: number, df2: number): number => {
   return 1 - regularizedIncompleteBeta(x, df1 / 2, df2 / 2);
 };
 
-const determineSignificance = (pValue: number | null): string | null => {
+export const determineSignificance = (pValue: number | null): string | null => {
   if (pValue === null || Number.isNaN(pValue)) return null;
   if (pValue < 0.001) return '***';
   if (pValue < 0.01) return '**';

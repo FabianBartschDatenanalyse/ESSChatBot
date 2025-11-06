@@ -76,11 +76,54 @@ export const RandomForestRegressionAnalysisSchema = z.object({
   featureEngineering: z.array(z.string()).optional(),
 });
 
+export const TTestGroupSummarySchema = z.object({
+  groupValue: z.string(),
+  n: z.number(),
+  mean: z.number(),
+  stdDev: numericNullable,
+  standardError: numericNullable,
+});
+
+export const TTestDifferenceSchema = z.object({
+  referenceGroup: z.string(),
+  comparisonGroup: z.string(),
+  meanDifference: z.number(),
+  standardError: z.number(),
+  degreesOfFreedom: z.number(),
+  tStatistic: z.number(),
+  pValue: numericNullable,
+  significance: z.string().nullable(),
+  confidenceInterval: RegressionConfidenceIntervalSchema,
+});
+
+export const TTestEffectSizeSchema = z.object({
+  cohensD: numericNullable,
+  hedgesG: numericNullable,
+});
+
+export const IndependentTTestAnalysisSchema = z.object({
+  model: z.literal('Independent Samples t-Test'),
+  target: z.string(),
+  groupingVariable: z.string(),
+  groups: z.array(TTestGroupSummarySchema),
+  difference: TTestDifferenceSchema,
+  effectSize: TTestEffectSizeSchema,
+  assumptions: z.array(z.string()),
+});
+
 export const RegressionAnalysisSchema = z.union([
   LinearRegressionAnalysisSchema,
   RandomForestRegressionAnalysisSchema,
 ]);
 
+export const StatisticsAnalysisSchema = z.union([
+  LinearRegressionAnalysisSchema,
+  RandomForestRegressionAnalysisSchema,
+  IndependentTTestAnalysisSchema,
+]);
+
 export type RegressionAnalysis = z.infer<typeof RegressionAnalysisSchema>;
 export type LinearRegressionAnalysis = z.infer<typeof LinearRegressionAnalysisSchema>;
 export type RandomForestRegressionAnalysis = z.infer<typeof RandomForestRegressionAnalysisSchema>;
+export type IndependentTTestAnalysis = z.infer<typeof IndependentTTestAnalysisSchema>;
+export type StatisticsAnalysis = z.infer<typeof StatisticsAnalysisSchema>;

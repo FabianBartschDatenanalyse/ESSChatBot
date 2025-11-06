@@ -13,13 +13,22 @@ import { Input } from "@/src/components/ui/input";
 import { Button } from "@/src/components/ui/button";
 import { ScrollArea } from "@/src/components/ui/scroll-area";
 import { Avatar, AvatarImage, AvatarFallback } from "@/src/components/ui/avatar";
-import { Loader2, Send, Code2, Database } from "lucide-react";
+import { Loader2, Send, Code2, Database, AlertCircle } from "lucide-react";
 import { type Conversation, type Message } from "@/src/lib/types";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/src/components/ui/accordion";
 import { ChartShell } from "@/src/features/charting/components/chart-shell";
-import { ChartDownloadButton } from "@/src/features/charting/components/chart-download-button";
 import { VegaChart } from "@/src/features/charting/components/vega-chart";
 import { RegressionSummary } from "@/src/features/statistics/components/regression-summary";
+import type { DatasetSummary } from "@/src/features/datasets/types";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/src/components/ui/select";
+import { Badge } from "@/src/components/ui/badge";
+import { Alert, AlertDescription } from "@/src/components/ui/alert";
 
 interface InlineRenderResult {
   nodes: React.ReactNode[];
@@ -380,15 +389,44 @@ const formSchema = z.object({
 interface AskAiPanelProps {
   conversation: Conversation;
   onMessagesUpdate: (conversationId: string, messages: Message[]) => void;
+  onDatasetChange: (conversationId: string, datasetId: string | null) => void;
+  datasets: DatasetSummary[];
+  isDatasetsLoading: boolean;
+  datasetError?: string | null;
 }
 
-export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPanelProps) {
+export default function AskAiPanel({
+  conversation,
+  onMessagesUpdate,
+  onDatasetChange,
+  datasets,
+  isDatasetsLoading,
+  datasetError,
+}: AskAiPanelProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [messages, setMessages] = useState<Message[]>(conversation.messages);
+  const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(conversation.datasetId ?? null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     setMessages(conversation.messages);
   }, [conversation]);
+
+  useEffect(() => {
+    setSelectedDatasetId(conversation.datasetId ?? null);
+  }, [conversation]);
+
+  const activeDataset = useMemo(
+    () => datasets.find((dataset) => dataset.id === selectedDatasetId) ?? null,
+    [datasets, selectedDatasetId],
+  );
+
+  const handleDatasetSelection = (value: string) => {
+    const datasetId = value === "none" ? null : value;
+    setSelectedDatasetId(datasetId);
+    setSubmitError(null);
+    onDatasetChange(conversation.id, datasetId);
+  };
 
   // 🔎 kleine Helfer
   const hasDataPng = (s?: string) => /data:image\/png;base64,/.test(s || "");
@@ -421,10 +459,16 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
   );
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    if (!selectedDatasetId) {
+      setSubmitError("Please select a dataset before asking a question.");
+      return;
+    }
+
     const userMessage: Message = { role: "user", content: values.question };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setIsLoading(true);
+    setSubmitError(null);
     form.reset();
 
     try {
@@ -438,6 +482,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
         body: JSON.stringify({
           question: values.question,
           history: historyForApi,
+          datasetId: selectedDatasetId,
         }),
       });
 
@@ -463,6 +508,7 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
       onMessagesUpdate(conversation.id, finalMessages);
     } catch (error) {
       console.error(error);
+      setSubmitError(error instanceof Error ? error.message : "Request failed.");
       const errorMessage: Message = {
         role: "assistant",
         content: "Sorry, I encountered an error. Please try again.",
@@ -477,6 +523,63 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
 
   return (
     <div className="flex h-[65vh] flex-col">
+      <div className="border-b bg-muted/30 p-4 space-y-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Dataset</p>
+            {isDatasetsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading datasets...
+              </div>
+            ) : activeDataset ? (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-medium">{activeDataset.title}</span>
+                <Badge variant="outline">
+                  {activeDataset.rowCount.toLocaleString()} rows
+                </Badge>
+                {activeDataset.weightColumn && (
+                  <Badge variant="secondary">Weight: {activeDataset.weightColumn}</Badge>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Select a dataset to chat about your data.</p>
+            )}
+          </div>
+          <Select
+            value={selectedDatasetId ?? "none"}
+            onValueChange={handleDatasetSelection}
+            disabled={isDatasetsLoading || datasets.length === 0}
+          >
+            <SelectTrigger className="w-full sm:w-64">
+              <SelectValue placeholder={isDatasetsLoading ? "Loading datasets..." : "Select dataset"} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">No dataset selected</SelectItem>
+              {datasets.map((dataset) => (
+                <SelectItem key={dataset.id} value={dataset.id}>
+                  {dataset.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {datasetError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{datasetError}</AlertDescription>
+          </Alert>
+        )}
+        {!datasetError && !isDatasetsLoading && (!selectedDatasetId || datasets.length === 0) && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              Upload and select a dataset to start chatting with the assistant.
+            </AlertDescription>
+          </Alert>
+        )}
+      </div>
+
       <ScrollArea className="flex-1 p-4">
         <div className="space-y-6">
           {messages.map((message, index) => {
@@ -541,13 +644,6 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                       <ChartShell
                         title={message.chart.title}
                         caption={message.chart.caption}
-                        actions={
-                          <ChartDownloadButton
-                            imageDataUrl={message.chart.imageDataUrl}
-                            title={message.chart.title}
-                            chartId={message.chart.id}
-                          />
-                        }
                       >
                         <VegaChart
                           chartId={message.chart.id}
@@ -660,7 +756,13 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
         </div>
       </ScrollArea>
 
-      <div className="border-t p-4">
+      <div className="border-t space-y-3 p-4">
+        {submitError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{submitError}</AlertDescription>
+          </Alert>
+        )}
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="flex items-center gap-2">
             <FormField
@@ -672,13 +774,17 @@ export default function AskAiPanel({ conversation, onMessagesUpdate }: AskAiPane
                     <Input
                       placeholder="e.g., What is the average trust in parliament per country?"
                       {...field}
-                      disabled={isLoading}
+                      disabled={isLoading || !selectedDatasetId || isDatasetsLoading}
                     />
                   </FormControl>
                 </FormItem>
               )}
             />
-            <Button type="submit" disabled={isLoading} size="icon">
+            <Button
+              type="submit"
+              disabled={isLoading || !selectedDatasetId || isDatasetsLoading}
+              size="icon"
+            >
               <Send className="h-4 w-4" />
             </Button>
           </form>

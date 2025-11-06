@@ -2,9 +2,7 @@
 
 import { ai, isAiConfigured, missingAiMessage } from '@/src/ai/genkit';
 import { z } from 'zod';
-import { searchCodebook } from '@/src/lib/vector-search';
 import { executeQuery } from '@/src/lib/data-service';
-import { fetchTableColumns } from '@/src/lib/schema-cache';
 
 // NEU: Font-Handling & Canvas-Rendering
 import fs from 'node:fs/promises';
@@ -14,6 +12,7 @@ import {
   looksNumeric,
   sanitizeLabel,
 } from './chart-tool-shared';
+import { DatasetToolContextSchema } from '@/src/features/datasets/types';
 
 const isModuleNotFoundError = (error: unknown, specifier: string) => {
   if (!error) return false;
@@ -53,6 +52,17 @@ async function tryLoadModule(
 }
 
 const FONT_FAMILY = 'DejaVu Sans';
+
+type VegaAggregate = 'mean' | 'median' | 'sum' | 'count' | 'min' | 'max';
+
+const AGGREGATE_TITLE_PREFIXES: Record<VegaAggregate, string> = {
+  mean: 'Durchschnitt von ',
+  median: 'Median von ',
+  sum: 'Summe von ',
+  count: 'Anzahl von ',
+  min: 'Minimum von ',
+  max: 'Maximum von ',
+};
 
 /** ------------------------------
  *  RENDERER (bestehend)
@@ -194,7 +204,7 @@ const ChartPlanSchema = z.object({
   aggregate: z.enum(['avg', 'sum', 'count', 'median', 'min', 'max', 'none']).default('none'),
   groupBy: z.array(z.string()).default([]),
   filters: z.record(z.string(), z.any()).optional(),
-  sqlQuery: z.string().describe('Konformer SQL (nur "ESS1")'),
+  sqlQuery: z.string().describe('Konformer SQL basierend auf dem ausgewählten Dataset.'),
 });
 
 const ChartToolInputSchema = z.object({
@@ -202,6 +212,7 @@ const ChartToolInputSchema = z.object({
   history: z
     .array(z.object({ role: z.enum(['user', 'assistant', 'tool']), content: z.string() }))
     .optional(),
+  dataset: DatasetToolContextSchema,
 });
 type ChartToolInput = z.infer<typeof ChartToolInputSchema>;
 
@@ -347,6 +358,16 @@ const prettyAxisTitle = (k?: string) => {
 
 const describeFieldLabel = (field?: string) => prettyAxisTitle(field) ?? field ?? '';
 
+const detectStackGroupLabel = (question?: string | null) => {
+  const normalized = collapseWhitespace(question ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  if (normalized.includes('maenner') || normalized.includes('manner')) return 'Maenner';
+  if (normalized.includes('frauen')) return 'Frauen';
+  if (normalized.includes('personen') || normalized.includes('befragte')) return 'Befragte';
+  return 'Gesamt';
+};
 const collapseWhitespace = (value?: string) =>
   typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
 
@@ -358,7 +379,9 @@ const stringsEqualIgnoreCase = (a?: string, b?: string) => {
 
 const resolveAggregateLabel = (agg?: string | null) => {
   if (!agg) return null;
-  switch (agg.toLowerCase()) {
+  const normalized = agg.toLowerCase();
+  if (normalized === 'none') return null;
+  switch (normalized) {
     case 'avg':
     case 'mean':
       return 'Durchschnitt';
@@ -593,16 +616,6 @@ async function generateChartInterpretation(args: ChartInterpretationArgs): Promi
   }
 }
 
-const buildCaptionText = (segments: Array<string | undefined>, titleText?: string) => {
-  const filtered = segments.map(collapseWhitespace).filter(Boolean);
-  if (!filtered.length) return undefined;
-  const caption = filtered.join(' | ');
-  if (stringsEqualIgnoreCase(caption, titleText)) {
-    return filtered[0];
-  }
-  return caption;
-};
-
 const ensureSingleLine = (value?: string, maxLength = 160) => {
   const normalized = collapseWhitespace(value);
   if (!normalized) return undefined;
@@ -693,72 +706,83 @@ const sqlHasAggregate = (sql?: string) =>
  *  ------------------------------ */
 type PlannerPromptArgs = {
   question: string;
-  codebook: string;
+  datasetSummary: string;
   allowedColumns: string[];
   tableName: string;
+  missingValueMap: Record<string, string[]>;
+  weightColumn?: string | null;
   previousError?: string;
+  datasetTitle: string;
 };
 
 const formatAllowedColumns = (columns: string[]) =>
   columns.map(name => `  - ${name}`).join('\n');
 
+const formatMissingValueMap = (map: Record<string, string[]>) => {
+  const entries = Object.entries(map);
+  if (!entries.length) {
+    return '  - (keine fehlenden Werte definiert)';
+  }
+  return entries
+    .map(([column, values]) => `  - ${column}: ${values.length ? values.join(', ') : 'none'}`)
+    .join('\n');
+};
+
 const plannerPrompt = ({
   question,
-  codebook,
+  datasetSummary,
   allowedColumns,
   tableName,
+  missingValueMap,
+  weightColumn,
+  datasetTitle,
   previousError,
 }: PlannerPromptArgs) => `
-Du bist ein Visual Analytics Assistent für die ESS-Datenbank.
+Du bist ein Visual Analytics Assistent fuer das Dataset "${datasetTitle}".
 
 AUFGABE:
 - Erzeuge einen geeigneten Diagramm-Plan (ChartPlan) **als JSON-OBJEKT** und einen SQL-Query, um die Daten abzurufen.
-- Benutze NUR Spaltennamen exakt wie im Codebook.
-- Tabelle: "${tableName}" (mit doppelten Anführungszeichen).
-- Erlaubte Spalten (vollständige Liste, **verwende ausschließlich diese Namen**):
+- Verwende NUR Spaltennamen exakt wie in der Dataset-Uebersicht.
+- Tabelle: "${tableName}" (immer in doppelten Anfuehrungszeichen).
+- Erlaubte Spalten (vollstaendige Liste, **verwende ausschliesslich diese Namen**):
 ${formatAllowedColumns(allowedColumns)}
-- Bei Aggregationen: CAST(...) als NUMERIC und fehlende Codes ('77','88','99','555','666','777','888','999','9999') ausschließen.
-- Typische Mappings:
-  - Balken: kategoriale Dimension + Aggregat der Metrik. Sowohl (x=Kategorie,y=Aggregat) als auch (y=Kategorie,x=Aggregat) sind erlaubt.
-  - Linie: zeitlich/ordinal auf x, Aggregat auf y
-  - Scatter: numerische x und y, keine Aggregation (oder Aggregat auf Gruppierung)
-  - Histogramm: x gebinnt (bin: true), y = count
-  - Pie: Kategorie auf color (z. B. cntry), Metrik aggregiert auf theta (z. B. SUM(...) AS value). Wenn unklar, nutze COUNT(*) AS value.
-- Wenn unklar, nutze bar chart mit AVG(...) nach "cntry".
-- Wenn du aggregierst, gib dem Aggregat IMMER einen eindeutigen Alias (z. B. "avg_trust" oder "value") und verwende genau diesen Alias im Chart-Feld.
+- Fehlende Werte: orientiere dich an den unten aufgefuehrten Sentinels und schliesse sie mit NOT IN (...) sowie IS NOT NULL aus.
+${weightColumn ? `- Gewichtung: Nutze, wenn sinnvoll, die Spalte "${weightColumn}" fuer gewichtete Kennzahlen.` : '- Gewichtung: Falls keine Gewichtung angegeben ist, arbeite ungewickt.'}
+- Typische Diagrammtypen:
+  - Balken: kategoriale Dimension + Aggregat der Metrik (x=Kategorie, y=Aggregat oder umgekehrt).
+  - Linie: zeitliche/ordinale Dimension auf x, Aggregat auf y.
+  - Scatter: numerische x und y, optional Gruppierung.
+  - Histogramm: x gebinnt (bin: true), y = count.
+  - Pie: Kategorie auf color, Aggregat auf theta (z. B. SUM(...) AS value). Wenn unklar, COUNT(*) AS value.
+- Wenn unklar, starte mit einem Balkendiagramm.
+- Gib Aggregaten eindeutige Aliase (z. B. "avg_value") und verwende diese im Chart.
 
-${previousError ? `HINWEIS: Der vorherige Vorschlag war ungültig (${previousError}). Bitte liefere einen neuen Plan, der diese Vorgabe respektiert.\n` : ''}
+${previousError ? `HINWEIS: Der vorherige Vorschlag war ungueltig (${previousError}). Bitte liefere eine korrigierte Variante.
+` : ''}
+
+DATASET-UEBERSICHT:
+${datasetSummary}
+
+FEHLENDE WERTE JE SPALTE:
+${formatMissingValueMap(missingValueMap)}
 
 WICHTIG (AUSGABEFORMAT):
-- **Gib ausschließlich ein JSON-OBJEKT der Instanz** zurück, KEIN JSON-Schema.
-- Enthält KEINE Schlüssel wie "properties", "required", "$schema".
-- "color" ist optional und muss eine **Spalte** sein (keine Hex-Farbe).
+- **Gib ausschliesslich ein JSON-OBJEKT der Instanz** zurueck, KEIN JSON-Schema.
+- Enthaltene Felder: title, chartType, x, y, aggregate, groupBy, filters, sqlQuery.
 - Beispiel (nur Format, Werte variieren):
 {
-  "title": "Durchschnittliches Vertrauen ins Parlament nach Land",
+  "title": "Durchschnittlicher Wert nach Kategorie",
   "chartType": "bar",
-  "x": "cntry",
-  "y": "avg_trust",
+  "x": "category",
+  "y": "avg_value",
   "aggregate": "none",
-  "groupBy": ["cntry"],
-  "sqlQuery": "SELECT \"cntry\", AVG(CAST(\"trstprl\" AS NUMERIC)) AS avg_trust FROM \"ESS1\" WHERE \"trstprl\" NOT IN ('77','88','99','555','666','777','888','999','9999') GROUP BY \"cntry\" ORDER BY avg_trust DESC"
+  "groupBy": ["category"],
+  "sqlQuery": "SELECT \"category\", AVG(CAST(\"metric\" AS NUMERIC)) AS avg_value FROM \"${tableName}\" WHERE \"metric\" IS NOT NULL GROUP BY \"category\" ORDER BY avg_value DESC"
 }
 
 FRAGE:
 "${question}"
-
-CODEBOOK KONTEXT (maßgeblich):
-${codebook}
 `;
-
-/** ------------------------------
- *  STYLE-TOOL (NEU, integriert)
- *  ------------------------------ */
-
-// Helper: nur Plain Objects durch die RSC-Grenze schicken
-const toPlain = <T>(obj: T): T => JSON.parse(JSON.stringify(obj));
-
-// 1) Whitelist-Schema für Styling-Operationen
 const StyleEdit = z.discriminatedUnion('op', [
   z.object({ op: z.literal('setTitle'), text: z.string() }),
   z.object({ op: z.literal('setSubtitle'), text: z.string() }),
@@ -782,7 +806,8 @@ const StyleEdit = z.discriminatedUnion('op', [
 const StyleEdits = z.array(StyleEdit).min(1);
 type StyleEdits = z.infer<typeof StyleEdits>;
 
-// 2) Deterministischer Patch-Applier
+const toPlain = <T>(obj: T): T => JSON.parse(JSON.stringify(obj));
+
 async function applyStyleEdits(spec: any, edits: StyleEdits) {
   const ensure = (obj: any, path: string[], seed: any = {}) => {
     let cur = obj;
@@ -804,30 +829,30 @@ async function applyStyleEdits(spec: any, edits: StyleEdits) {
     return spec.mark;
   };
 
-  spec.config = spec.config ?? {};
-  spec.config.title = spec.config.title ?? {};
-  spec.config.axis = spec.config.axis ?? {};
-  spec.config.legend = spec.config.legend ?? {};
-
-  const isQuant = (enc: any) => enc?.type === 'quantitative';
-  const guessMetric = (s: any): string => {
-    const y = s?.encoding?.y;
-    if (y?.type === 'quantitative' && y.field) return y.field;
-    const x = s?.encoding?.x;
-    if (x?.type === 'quantitative' && x.field) return x.field;
-    return (y?.field ?? x?.field ?? 'value');
+  const guessMetric = (innerSpec: any) => {
+    if (innerSpec?.encoding?.y?.field) return innerSpec.encoding.y.field;
+    if (innerSpec?.encoding?.x?.field) return innerSpec.encoding.x.field;
+    return 'value';
   };
 
-  for (const e of edits) {
+  const isQuant = (enc: any) => {
+    const type = enc?.type ?? enc?.scale?.type;
+    return type === 'quantitative' || type === 'linear';
+  };
+
+  for (const edit of edits) {
+    const e = edit as any;
     switch (e.op) {
       case 'setTitle':
-        (spec as any).title = e.text;
+        spec.title = e.text;
         break;
       case 'setSubtitle':
-        (spec as any).title = { text: (spec as any).title?.text ?? (spec as any).title ?? '', subtitle: e.text };
+        if (typeof spec.title === 'object' && spec.title !== null) {
+          delete (spec.title as any).subtitle;
+        }
         break;
       case 'setSize':
-        (spec as any).width = e.width; (spec as any).height = e.height;
+        spec.width = e.width; spec.height = e.height;
         break;
       case 'rotateXLabels':
         ensure(spec, ['encoding','x','axis'], {});
@@ -926,7 +951,6 @@ async function applyStyleEdits(spec: any, edits: StyleEdits) {
     }
   }
 
-  // Fonts konsistent halten
   (spec as any).config.text  = { ...((spec as any).config.text  ?? {}), font: 'DejaVu Sans' };
   (spec as any).config.title = { ...((spec as any).config.title ?? {}), font: 'DejaVu Sans' };
   (spec as any).config.axis  = { ...((spec as any).config.axis  ?? {}), labelFont: 'DejaVu Sans', titleFont: 'DejaVu Sans' };
@@ -934,16 +958,16 @@ async function applyStyleEdits(spec: any, edits: StyleEdits) {
   return spec;
 }
 
-// 3) NL→Edits Prompt
+
 const stylePlannerPrompt = (prompt: string) => `
 Du bist ein Assistent, der **nur Styling**-Anpassungen für eine bestehende Vega-Lite-Spezifikation vornimmt.
 Erzeuge eine JSON-Liste von Edits gemäß der zugelassenen Operationen (Whitelist). Keine Änderungen an Daten, Feldern oder Transformationen.
 
-Beispiele in natürlicher Sprache → Edits:
-- "Drehe X-Achsenlabels um 45°" → [{"op":"rotateXLabels","angle":45}]
-- "Titel auf 'Zufriedenheit nach Land', Legende oben" → [{"op":"setTitle","text":"Zufriedenheit nach Land"},{"op":"setLegend","position":"top"}]
-- "Weiche Pastellpalette" → [{"op":"setNominalPalette","palette":"pastel"}]
-- "Werte direkt über den Balken anzeigen" → [{"op":"showValueLabels","on":true}]
+Beispiele in natürlicher Sprache ? Edits:
+- "Drehe X-Achsenlabels um 45°" ? [{"op":"rotateXLabels","angle":45}]
+- "Titel auf 'Zufriedenheit nach Land', Legende oben" ? [{"op":"setTitle","text":"Zufriedenheit nach Land"},{"op":"setLegend","position":"top"}]
+- "Weiche Pastellpalette" ? [{"op":"setNominalPalette","palette":"pastel"}]
+- "Werte direkt über den Balken anzeigen" ? [{"op":"showValueLabels","on":true}]
 
 Nutzerwunsch:
 "${prompt}"
@@ -967,7 +991,7 @@ const styleToolInternal = ai.defineTool(
       return { error: missingAiMessage };
     }
     try {
-      // 1) NL → Edits (Whitelist)
+      // 1) NL ? Edits (Whitelist)
       const plan = await ai.generate({
         model: 'openai/gpt-4o-mini',
         prompt: stylePlannerPrompt(input.nlPrompt),
@@ -981,7 +1005,7 @@ const styleToolInternal = ai.defineTool(
       const updated = await applyStyleEdits(baseSpec, edits);
       const updatedPlain = toPlain(updated);
 
-      // 3) Validieren (Vega-Lite → Vega)
+      // 3) Validieren (Vega-Lite ? Vega)
       try {
         const [vegaCheck, vegaLiteCheck] = await Promise.all([
           tryLoadModule('vega', () => import('vega')),
@@ -1029,17 +1053,50 @@ const chartToolInternal = ai.defineTool(
       return { error: missingAiMessage };
     }
     try {
-      // 1) Kontext holen
-      const codebookHits = await searchCodebook(input.nlQuestion, 7);
-      const retrievedContext = codebookHits.map((r: any) => `- ${r.content}`).join('\n');
+      // 1) Kontext direkt aus dem Dataset übernehmen
+      const retrievedContext = input.dataset.context;
+      const tableName = input.dataset.tableName;
+      const datasetColumns = input.dataset.columns ?? [];
+      const columnLookup = new Map<string, (typeof datasetColumns)[number]>();
+      for (const column of datasetColumns) {
+        const keys = [column.name, column.originalName, column.displayName];
+        for (const key of keys) {
+          const normalizedKey = normalizeIdent(key);
+          if (!normalizedKey || columnLookup.has(normalizedKey)) continue;
+          columnLookup.set(normalizedKey, column);
+        }
+      }
+      const findColumnMeta = (field?: string | null) => {
+        if (!field) return undefined;
+        const normalized = normalizeIdent(field);
+        return normalized ? columnLookup.get(normalized) : undefined;
+      };
+      const shouldTreatAsNominal = (field?: string | null) => {
+        if (!field) return false;
+        const normalized = normalizeIdent(field);
+        if (!normalized) return false;
+        if (NEVER_NUMERIC.has(normalized)) return true;
+        const column = findColumnMeta(field);
+        if (!column) return false;
+        if (column.dataType === 'boolean') return true;
+        if ((column.valueLabels?.length ?? 0) > 0) return true;
+        return false;
+      };
+      const allowedColumns = datasetColumns.map((column) => column.name);
+      const datasetTitle = input.dataset.title ?? 'Dataset';
+      const defaultMissing = new Set((input.dataset.defaultMissingValues ?? []).map(value => String(value).trim()).filter(Boolean));
+      const missingValueMap: Record<string, string[]> = {};
 
-      const tableName = 'ESS1';
-      let allowedColumns: string[];
-      try {
-        allowedColumns = await fetchTableColumns(tableName);
-      } catch (schemaError: any) {
-        const message = schemaError?.message ?? String(schemaError);
-        return { error: `Schema konnte nicht geladen werden: ${message}`, retrievedContext };
+      for (const column of datasetColumns) {
+        const perColumn = new Set([
+          ...Array.from(defaultMissing),
+          ...((column.missingValues ?? []).map(value => String(value).trim()).filter(Boolean)),
+        ]);
+        missingValueMap[column.name] = Array.from(perColumn);
+      }
+
+      if (!allowedColumns.length) {
+        return { error: 'Das Dataset enthält keine Spaltendefinitionen.', retrievedContext };
       }
 
       const MAX_PLANNER_ATTEMPTS = 2;
@@ -1052,9 +1109,12 @@ const chartToolInternal = ai.defineTool(
           model: 'openai/gpt-4o',
           prompt: plannerPrompt({
             question: input.nlQuestion,
-            codebook: retrievedContext,
+            datasetSummary: retrievedContext,
             allowedColumns,
             tableName,
+            missingValueMap,
+            weightColumn: input.dataset.weightColumn ?? null,
+            datasetTitle,
             previousError,
           }),
           output: { schema: ChartPlanSchema },
@@ -1102,7 +1162,7 @@ const chartToolInternal = ai.defineTool(
       }
 
       // 3) Daten abfragen
-      const res = await executeQuery(sqlQuery);
+      const res = await executeQuery(sqlQuery, input.dataset.id);
       if (res.error) {
         return { error: `SQL fehlgeschlagen: ${res.error}`, sqlQuery, retrievedContext };
       }
@@ -1112,20 +1172,42 @@ const chartToolInternal = ai.defineTool(
         return { error: 'Die Abfrage gab keine Daten zurück.', sqlQuery, retrievedContext };
       }
 
-      // 3b) Strings → Zahlen
+      // 3b) Strings ? Zahlen
       rows = coerceNumericColumns(rows);
 
       // Sicherheitslimit
       const MAX_POINTS = 5000;
-      const dataValues = rows.slice(0, MAX_POINTS);
+      let dataValues = rows.slice(0, MAX_POINTS);
 
       // 4) Vega-Lite Spec bauen (robust)
-      const sample = dataValues[0] || {};
-      const cols = Object.keys(sample);
+      let sample = dataValues[0] || {};
+      let cols = Object.keys(sample);
 
-      const isNumericCol = (k: string) => typeof sample[k] === 'number';
-      const xType = typeof sample[plan.x] === 'number' ? 'quantitative' : 'nominal';
-      const yType = plan.y && sample[plan.y] ? (typeof sample[plan.y] === 'number' ? 'quantitative' : 'nominal') : undefined;
+      const detectFieldType = (field?: string | null): 'quantitative' | 'nominal' | undefined => {
+        if (!field) return undefined;
+        if (shouldTreatAsNominal(field)) return 'nominal';
+        for (const row of dataValues) {
+          const value = row?.[field];
+          if (typeof value === 'number' && Number.isFinite(value)) {
+            return 'quantitative';
+          }
+          if (typeof value === 'string' && value.length > 0) {
+            if (looksNumeric(value)) return 'quantitative';
+            return 'nominal';
+          }
+          if (typeof value === 'boolean') {
+            return 'nominal';
+          }
+        }
+        const column = findColumnMeta(field);
+        if (column && column.dataType === 'number' && (column.valueLabels?.length ?? 0) === 0) {
+          return 'quantitative';
+        }
+        return 'nominal';
+      };
+      const isNumericCol = (k: string) => detectFieldType(k) === 'quantitative';
+      const xType = detectFieldType(plan.x) ?? 'nominal';
+      const yType = plan.y ? detectFieldType(plan.y) : undefined;
 
       // Mark inkl. Pie
       const mark =
@@ -1141,38 +1223,66 @@ const chartToolInternal = ai.defineTool(
 
       // Farbe nur, wenn es wirklich eine Spalte ist
       const safeColor = plan.color && /^#/.test(plan.color) ? undefined : plan.color;
-
-      // metrisch/kategorial bestimmen (für Balken)
+      let colorFieldOverride: string | undefined;
+      // metrisch/kategorial bestimmen (fuer Balken)
       let metricField: string | undefined;
       let categoryField: string | undefined;
-      if (isBarMark && yType) {
-        if (xType === 'quantitative' && yType === 'nominal') {
-          metricField = plan.x;
-          categoryField = plan.y;
-        } else if (yType === 'quantitative' && xType === 'nominal') {
+      if (isBarMark) {
+        if (plan.y && yType === 'quantitative') {
           metricField = plan.y;
           categoryField = plan.x;
+        } else if (xType === 'quantitative') {
+          metricField = plan.x;
+          categoryField = plan.y;
+        } else if (plan.y && xType === 'nominal' && yType !== 'quantitative') {
+          metricField = plan.x;
+          categoryField = plan.y;
         }
       }
+      if (!metricField && plan.y && yType === 'quantitative') {
+        metricField = plan.y;
+      }
+      if (!categoryField && plan.x && plan.chartType !== 'scatter') {
+        categoryField = plan.x;
+      }
 
-      const needsClientSideAggregation = !sqlHasAggregate(sqlQuery) && !!metricField;
+      const dimensionFieldForAggregation =
+        categoryField ?? (plan.chartType === 'scatter' ? undefined : plan.x);
+      const hasDuplicateDimensionValues = (() => {
+        if (!dimensionFieldForAggregation) return false;
+        const seen = new Set<string>();
+        for (const row of dataValues) {
+          const rawValue = row[dimensionFieldForAggregation];
+          if (rawValue === null || rawValue === undefined) continue;
+          const key =
+            typeof rawValue === 'string'
+              ? rawValue
+              : typeof rawValue === 'number' || typeof rawValue === 'boolean'
+              ? String(rawValue)
+              : JSON.stringify(rawValue);
+          if (seen.has(key)) {
+            return true;
+          }
+          seen.add(key);
+        }
+        return false;
+      })();
 
-      // Aggregations-Default (Pie bevorzugt sum/count)
-      let aggregateMethod: any = 'none';
+      const needsClientSideAggregation =
+        (!plan.aggregate || plan.aggregate === 'none') &&
+        Boolean(metricField && hasDuplicateDimensionValues && plan.chartType !== 'scatter');
+
+      let aggregateMethod: VegaAggregate | 'none' = 'none';
       let aggTitlePrefix = '';
 
-      if (plan.chartType === 'pie') {
-        if (plan.aggregate && plan.aggregate !== 'none') {
-          aggregateMethod = plan.aggregate === 'avg' ? 'mean' : plan.aggregate;
-        } else {
-          aggregateMethod = plan.y ? 'sum' : 'count';
-        }
-      } else if (plan.aggregate && plan.aggregate !== 'none') {
-        aggregateMethod = plan.aggregate === 'avg' ? 'mean' : plan.aggregate;
-        aggTitlePrefix = 'Durchschnitt von ';
+      if (plan.aggregate && plan.aggregate !== 'none') {
+        const normalizedAggregate =
+          plan.aggregate === 'avg' ? 'mean' : (plan.aggregate as VegaAggregate);
+        aggregateMethod = normalizedAggregate;
+        aggTitlePrefix = AGGREGATE_TITLE_PREFIXES[aggregateMethod] ?? '';
       } else if (needsClientSideAggregation) {
         aggregateMethod = 'mean';
-        aggTitlePrefix = 'Durchschnitt von ';
+        aggTitlePrefix = AGGREGATE_TITLE_PREFIXES[aggregateMethod];
       }
 
       // ---------- PIE: eigene Spezifikation & frueher Return ----------
@@ -1199,12 +1309,6 @@ const chartToolInternal = ai.defineTool(
             ? (resolvedTitle as any).text
             : undefined;
         const aggregateLabel = resolveAggregateLabel(aggregateMethod);
-        const axisParts: string[] = [`Kategorie: ${describeFieldLabel(categoryFieldPie)}`];
-        if (metricFieldPie) axisParts.push(`Wert: ${describeFieldLabel(metricFieldPie)}`);
-        const axisSegment =
-          axisParts.length ? `Segmente (${axisParts.join(' - ')})` : undefined;
-        const aggregationSegment =
-          aggregateLabel ? `Aggregation: ${aggregateLabel}` : undefined;
         const narrative = await generateChartInterpretation({
           question: input.nlQuestion,
           chartType: plan.chartType,
@@ -1218,27 +1322,12 @@ const chartToolInternal = ai.defineTool(
           },
         });
         const interpretation = narrative?.trim();
-        const subtitleSource = buildCaptionText(
-          [
-            `Basis: ${dataValues.length} Faelle aus ESS1`,
-            aggregationSegment,
-            axisSegment,
-          ],
-          titleText,
-        );
-        const providedSubtitle =
-          typeof resolvedTitle === 'object' && resolvedTitle
-            ? (resolvedTitle as any).subtitle
-            : undefined;
-        const subtitle = ensureSingleLine(providedSubtitle ?? subtitleSource);
         const titleSpec =
           typeof resolvedTitle === 'string'
             ? { text: resolvedTitle }
             : { ...(resolvedTitle as Record<string, any>) };
-        if (subtitle) {
-          titleSpec.subtitle = subtitle;
-        } else if (titleSpec.subtitle) {
-          titleSpec.subtitle = ensureSingleLine(titleSpec.subtitle);
+        if ((titleSpec as any).subtitle) {
+          delete (titleSpec as any).subtitle;
         }
 
         const vegaLiteSpec: any = {
@@ -1252,7 +1341,11 @@ const chartToolInternal = ai.defineTool(
               mark: { type: 'arc', innerRadius: 0 },
               encoding: {
                 theta: metricFieldPie
-                  ? { field: metricFieldPie, type: 'quantitative', aggregate: aggregateMethod }
+                  ? {
+                      field: metricFieldPie,
+                      type: 'quantitative',
+                      ...(aggregateMethod !== 'none' ? { aggregate: aggregateMethod } : {}),
+                    }
                   : { aggregate: 'count', type: 'quantitative' },
                 color: { field: categoryFieldPie, type: 'nominal', title: prettyAxisTitle(categoryFieldPie) },
                 tooltip: tooltipPie
@@ -1311,23 +1404,102 @@ const chartToolInternal = ai.defineTool(
           sqlQuery,
           retrievedContext,
           title: titleText && titleText.trim() ? titleText : fallbackPieTitle,
-          caption: subtitle,
+        caption: '',
           interpretation,
         };
       }
       // ---------- ENDE PIE-Zweig ----------
 
-      const encX: any = {
+      let encX: any = {
         field: plan.x,
         type: xType,
         axis: { title: prettyAxisTitle(plan.x), labelAngle: 0, labelOverlap: 'greedy', labelLimit: 220 }
       };
-      const encY: any = plan.y
+      let encY: any = plan.y
         ? { field: plan.y, type: yType, axis: { title: prettyAxisTitle(plan.y) } }
         : undefined;
 
+      const fieldAxisMap: Record<string, 'x' | 'y'> = {};
+      if (plan.x) fieldAxisMap[plan.x] = 'x';
+      if (plan.y) fieldAxisMap[plan.y] = 'y';
+
+      let shouldFlipForHorizontalBars =
+        isBarMark && encY && yType === 'quantitative' && xType !== 'quantitative';
+      const mentionsStacked = /gestapel|stapel|stacked/i.test(input.nlQuestion ?? '');
+      let stackGroupField: string | undefined;
+      let stackGroupLabel: string | undefined;
+      const wantsStackedBar = Boolean(mentionsStacked && isBarMark && metricField && categoryField);
+
+      if (wantsStackedBar && metricField && categoryField) {
+        stackGroupField = '__stack_group';
+        stackGroupLabel = detectStackGroupLabel(input.nlQuestion);
+        dataValues = dataValues.map(row => ({
+          ...row,
+          [stackGroupField!]: stackGroupLabel,
+        }));
+        sample = dataValues[0] || {};
+        cols = Object.keys(sample);
+        delete fieldAxisMap[plan.x];
+        if (plan.y) delete fieldAxisMap[plan.y];
+        fieldAxisMap[metricField] = 'x';
+        fieldAxisMap[stackGroupField] = 'y';
+
+        const metricValues = dataValues
+          .map(row => Number(row[metricField as string]))
+          .filter(value => Number.isFinite(value));
+        const metricMax = metricValues.length ? Math.max(...metricValues) : 0;
+        const useNormalized = metricValues.length > 0 && metricMax <= 1.01;
+
+        encX = {
+          field: metricField,
+          type: 'quantitative',
+          axis: {
+            title: prettyAxisTitle(metricField) ?? 'Wert',
+            format: useNormalized ? '.0%' : '.2f',
+          },
+          stack: useNormalized ? 'normalize' : 'zero',
+        };
+        encY = {
+          field: stackGroupField,
+          type: 'nominal',
+          axis: { title: stackGroupLabel },
+          ...(stackGroupLabel ? { sort: [stackGroupLabel] } : {}),
+        };
+        shouldFlipForHorizontalBars = false;
+        colorFieldOverride = categoryField;
+      }
+
+      if (shouldFlipForHorizontalBars) {
+        const originalX = encX;
+        const originalY = encY;
+        encX = {
+          ...originalY,
+          axis: { ...(originalY.axis ?? {}), title: originalY.axis?.title ?? prettyAxisTitle(plan.y) },
+        };
+        encY = {
+          ...originalX,
+          axis: {
+            ...(originalX.axis ?? {}),
+            title: originalX.axis?.title ?? prettyAxisTitle(plan.x),
+            labelAngle: 0,
+            labelOverlap: 'greedy',
+            labelLimit: 220,
+          },
+        };
+        if (plan.x) fieldAxisMap[plan.x] = 'y';
+        if (plan.y) fieldAxisMap[plan.y] = 'x';
+      }
+
+      const axisForField = (field?: string) => (field ? fieldAxisMap[field] : undefined);
+      const encodingForField = (field?: string) => {
+        const axis = axisForField(field);
+        if (axis === 'x') return encX;
+        if (axis === 'y') return encY;
+        return undefined;
+      };
+
       if (aggregateMethod !== 'none' && metricField) {
-        const metricEnc = (metricField === plan.x) ? encX : encY;
+        const metricEnc = encodingForField(metricField);
         if (metricEnc) {
           metricEnc.aggregate = aggregateMethod;
           if (metricEnc.type === 'quantitative') {
@@ -1350,27 +1522,44 @@ const chartToolInternal = ai.defineTool(
         }
       }
 
-      applyDefaultAxisDomain(encX, plan.x);
+      applyDefaultAxisDomain(encX, (encX as any)?.field ?? plan.x);
       if (encY) {
-        applyDefaultAxisDomain(encY, plan.y);
+        applyDefaultAxisDomain(encY, (encY as any)?.field ?? plan.y);
       }
 
-      if (isBarMark && categoryField && metricField) {
-        const categoryEnc = (categoryField === plan.x) ? encX : encY;
-        const metricAxis = (metricField === plan.x) ? 'x' : 'y';
-        if (categoryEnc) categoryEnc.sort = `-${metricAxis}`;
+      if (isBarMark && categoryField && metricField && !wantsStackedBar) {
+        const categoryEnc = encodingForField(categoryField);
+        const metricAxis = axisForField(metricField);
+        if (categoryEnc && metricAxis) categoryEnc.sort = `-${metricAxis}`;
       }
 
-      const encColor = safeColor && cols.includes(safeColor)
-        ? { field: safeColor, type: 'nominal', title: prettyAxisTitle(safeColor) }
-        : undefined;
+      const colorFieldCandidate =
+        (colorFieldOverride && cols.includes(colorFieldOverride))
+          ? colorFieldOverride
+          : safeColor && cols.includes(safeColor)
+          ? safeColor
+          : undefined;
+      let encColor: any = undefined;
+      if (colorFieldCandidate) {
+        const colorType = typeof sample[colorFieldCandidate] === 'number' ? 'ordinal' : 'nominal';
+        encColor = {
+          field: colorFieldCandidate,
+          type: colorType,
+          title: prettyAxisTitle(colorFieldCandidate),
+        };
+        if (colorType === 'ordinal') {
+          encColor.sort = 'ascending';
+        }
+      }
 
-      const tooltipEnc: any[] = cols.map(c => ({
-        field: c,
-        type: isNumericCol(c) ? 'quantitative' : 'nominal',
-        title: prettyAxisTitle(c),
-        ...(isNumericCol(c) && { format: '.2f' })
-      }));
+      const tooltipEnc: any[] = cols
+        .filter(c => !c.startsWith('__'))
+        .map(c => ({
+          field: c,
+          type: isNumericCol(c) ? 'quantitative' : 'nominal',
+          title: prettyAxisTitle(c),
+          ...(isNumericCol(c) && { format: '.2f' })
+        }));
 
       let textLayer: any;
       const metricSampleVal =
@@ -1380,7 +1569,8 @@ const chartToolInternal = ai.defineTool(
         (typeof metricSampleVal === 'number' || (typeof metricSampleVal === 'string' && /^-?\d+(\.\d+)?$/.test(metricSampleVal)));
 
       if (isBarMark && metricField && metricIsNumeric) {
-        const metricEnc = (metricField === plan.x) ? encX : encY;
+        const metricEnc = encodingForField(metricField);
+        const metricAxis = axisForField(metricField) ?? 'y';
         const textChannelDef: any = {
           field: metricField,
           type: 'quantitative',
@@ -1389,7 +1579,7 @@ const chartToolInternal = ai.defineTool(
         if (metricEnc?.aggregate) textChannelDef.aggregate = metricEnc.aggregate;
 
         const textMarkAlign =
-          metricField === plan.x
+          metricAxis === 'x'
             ? { align: 'left', baseline: 'middle', dx: 6 }
             : { align: 'center', baseline: 'bottom', dy: -8 };
 
@@ -1397,6 +1587,10 @@ const chartToolInternal = ai.defineTool(
           mark: { type: 'text', fontSize: 11, font: FONT_FAMILY, color: '#0f172a', ...textMarkAlign },
           encoding: { text: textChannelDef }
         };
+      }
+
+      if (wantsStackedBar) {
+        textLayer = undefined;
       }
 
       const fallbackTitle =
@@ -1473,44 +1667,26 @@ const chartToolInternal = ai.defineTool(
       };
 
       const aggregateLabel = resolveAggregateLabel(aggregateMethod);
-      const axisParts: string[] = [`X: ${describeFieldLabel(plan.x)}`];
-      if (plan.y) axisParts.push(`Y: ${describeFieldLabel(plan.y)}`);
-      if (safeColor) axisParts.push(`Farbe: ${describeFieldLabel(safeColor)}`);
-      const axisSegment =
-        axisParts.length ? `Achsen (${axisParts.join(' - ')})` : undefined;
-      const aggregationSegment =
-        aggregateLabel && metricField
-          ? `Aggregation: ${aggregateLabel} fuer ${describeFieldLabel(metricField)}`
-          : undefined;
+      const axisXField = wantsStackedBar && metricField ? metricField : plan.x;
+      const axisYField = wantsStackedBar && stackGroupField ? stackGroupField : plan.y;
       const narrative = await generateChartInterpretation({
         question: input.nlQuestion,
         chartType: plan.chartType,
         aggregateLabel,
         dataValues,
         axis: {
-          x: { field: plan.x, label: describeFieldLabel(plan.x) },
-          y: plan.y ? { field: plan.y, label: describeFieldLabel(plan.y) } : undefined,
-          color: safeColor ? { field: safeColor, label: describeFieldLabel(safeColor) } : undefined,
+          x: axisXField ? { field: axisXField, label: describeFieldLabel(axisXField) } : undefined,
+          y: axisYField
+            ? { field: axisYField, label: stackGroupLabel ?? describeFieldLabel(axisYField) }
+            : undefined,
+          color: colorFieldCandidate
+            ? { field: colorFieldCandidate, label: describeFieldLabel(colorFieldCandidate) }
+            : undefined,
         },
       });
       const interpretation = narrative?.trim();
-      const subtitleSource = buildCaptionText(
-        [
-          `Basis: ${dataValues.length} Faelle aus ESS1`,
-          aggregationSegment,
-          axisSegment,
-        ],
-        titleText,
-      );
-      const providedSubtitle =
-        typeof resolvedTitle === 'object' && resolvedTitle
-          ? (resolvedTitle as any).subtitle
-          : undefined;
-      const subtitle = ensureSingleLine(providedSubtitle ?? subtitleSource);
-      if (subtitle) {
-        titleSpec.subtitle = subtitle;
-      } else if (titleSpec.subtitle) {
-        titleSpec.subtitle = ensureSingleLine(titleSpec.subtitle);
+      if ((titleSpec as any).subtitle) {
+        delete (titleSpec as any).subtitle;
       }
 
       let imageDataUrl: string;
@@ -1530,7 +1706,7 @@ const chartToolInternal = ai.defineTool(
         sqlQuery,
         retrievedContext,
         title: titleText && titleText.trim() ? titleText : fallbackTitle,
-        caption: subtitle,
+        caption: '',
         interpretation,
       };
     } catch (e: any) {

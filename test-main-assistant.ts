@@ -6,6 +6,7 @@ async function test() {
   const input = {
     question: 'What is the average trust in parliament per country?',
     history: [],
+    datasetId: '00000000-0000-0000-0000-000000000000',
   };
 
   const result = await mainAssistant(input);
